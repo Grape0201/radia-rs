@@ -53,7 +53,34 @@ impl JsonMassAttenuationProvider {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, MaterialError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let elements: HashMap<AtomicNumber, ElementData> = serde_json::from_reader(reader)?;
+        let mut elements: HashMap<AtomicNumber, ElementData> = serde_json::from_reader(reader)?;
+
+        // Ensure each element's energy data is sorted
+        for element in elements.values_mut() {
+            // Check if sorted
+            let is_sorted = element.energies.windows(2).all(|w| w[0] <= w[1]);
+
+            if !is_sorted {
+                // Create indices and sort them based on energy
+                let mut indices: Vec<usize> = (0..element.energies.len()).collect();
+                indices.sort_by(|&a, &b| {
+                    element.energies[a]
+                        .partial_cmp(&element.energies[b])
+                        .unwrap()
+                });
+
+                // Reorder energies and mu_over_rho
+                let mut sorted_energies = Vec::with_capacity(element.energies.len());
+                let mut sorted_mu = Vec::with_capacity(element.mu_over_rho.len());
+                for &idx in &indices {
+                    sorted_energies.push(element.energies[idx]);
+                    sorted_mu.push(element.mu_over_rho[idx]);
+                }
+                element.energies = sorted_energies;
+                element.mu_over_rho = sorted_mu;
+            }
+        }
+
         Ok(Self { elements })
     }
 
@@ -336,5 +363,29 @@ mod tests {
         // Density = 1.0, so mu should be ~0.07072 cm-1
         let water_mu = mu_table.get_mu(0, 0);
         assert!((water_mu - 0.07072).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_json_provider_auto_sort() {
+        use std::io::Write;
+        let temp_path = "/tmp/unsorted_elements.json";
+        let json_content = r#"{
+            "1": {
+                "name": "Hydrogen",
+                "energies": [2.0, 0.5, 1.0],
+                "mu_over_rho": [0.1032, 0.1263, 0.1111]
+            }
+        }"#;
+        let mut file = File::create(temp_path).unwrap();
+        file.write_all(json_content.as_bytes()).unwrap();
+
+        let provider = JsonMassAttenuationProvider::from_file(temp_path).unwrap();
+
+        // If sorted, it should be: [0.5, 1.0, 2.0] with [0.1263, 0.1111, 0.1032]
+        // 0.75 MeV should interpolate between 0.5 and 1.0
+        let val = provider.get_mass_attenuation(1, 0.75).unwrap();
+        assert!(val > 0.1111 && val < 0.1263);
+
+        std::fs::remove_file(temp_path).unwrap();
     }
 }

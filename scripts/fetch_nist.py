@@ -74,10 +74,15 @@ def fetch_element_data():
                 except ValueError:
                     continue
 
+        # Zip, sort, and unzip to ensure energies are in ascending order
+        combined = sorted(zip(energy_list, mu_over_rho_list))
+        sorted_energies = [x[0] for x in combined]
+        sorted_mu = [x[1] for x in combined]
+
         elements_data[z] = {
             "name": element_name,
-            "energies": energy_list,
-            "mu_over_rho": mu_over_rho_list,
+            "energies": sorted_energies,
+            "mu_over_rho": sorted_mu,
         }
         time.sleep(0.05)
 

@@ -6,11 +6,32 @@ use std::path::Path;
 
 pub type AtomicNumber = u32;
 
+#[derive(thiserror::Error, Debug)]
+pub enum MaterialError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Element with atomic number {0} not found")]
+    ElementNotFound(AtomicNumber),
+
+    #[error("Target energy {target} MeV is too low (minimum {min} MeV)")]
+    EnergyTooLow { target: f64, min: f64 },
+
+    #[error("Target energy {target} MeV is too high (maximum {max} MeV)")]
+    EnergyTooHigh { target: f64, max: f64 },
+
+    #[error("{0}")]
+    Other(String),
+}
+
 /// Trait abstracting a provider of mass attenuation coefficients data.
 /// It is responsible for returning the mass attenuation coefficient for a given atomic number and energy.
 pub trait MassAttenuationProvider {
     /// Retrieves the mass attenuation coefficient [cm^2/g] for a specific atomic number and energy (MeV).
-    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f64) -> f64;
+    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f64) -> Result<f64, MaterialError>;
 }
 
 /// Element data structure for JSON deserialization.
@@ -29,7 +50,7 @@ pub struct JsonMassAttenuationProvider {
 
 impl JsonMassAttenuationProvider {
     /// Loads the data from a JSON file.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, MaterialError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let elements: HashMap<AtomicNumber, ElementData> = serde_json::from_reader(reader)?;
@@ -37,17 +58,28 @@ impl JsonMassAttenuationProvider {
     }
 
     /// Performs log-log linear interpolation for the mass attenuation coefficient.
-    fn interpolate(energies: &[f64], values: &[f64], target_energy: f64) -> f64 {
+    fn interpolate(
+        energies: &[f64],
+        values: &[f64],
+        target_energy: f64,
+    ) -> Result<f64, MaterialError> {
+        // do not **extrapolate**
         if target_energy <= energies[0] {
-            return values[0];
+            return Err(MaterialError::EnergyTooLow {
+                target: target_energy,
+                min: energies[0],
+            });
         }
         if target_energy >= *energies.last().unwrap() {
-            return *values.last().unwrap();
+            return Err(MaterialError::EnergyTooHigh {
+                target: target_energy,
+                max: *energies.last().unwrap(),
+            });
         }
 
         // Find the interval
         let idx = match energies.binary_search_by(|e| e.partial_cmp(&target_energy).unwrap()) {
-            Ok(i) => return values[i],
+            Ok(i) => return Ok(values[i]),
             Err(i) => i,
         };
 
@@ -65,16 +97,16 @@ impl JsonMassAttenuationProvider {
         let log_y2 = y2.ln();
 
         let log_y = log_y1 + (log_y2 - log_y1) / (log_x2 - log_x1) * (log_x - log_x1);
-        log_y.exp()
+        Ok(log_y.exp())
     }
 }
 
 impl MassAttenuationProvider for JsonMassAttenuationProvider {
-    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f64) -> f64 {
+    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f64) -> Result<f64, MaterialError> {
         if let Some(element) = self.elements.get(&z) {
             Self::interpolate(&element.energies, &element.mu_over_rho, energy_mev)
         } else {
-            0.0
+            Err(MaterialError::ElementNotFound(z))
         }
     }
 }
@@ -93,7 +125,7 @@ pub struct MaterialRegistry {
 
 impl MaterialRegistry {
     /// Loads common compositions from a JSON file.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, MaterialError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let compositions: HashMap<String, CompositionData> = serde_json::from_reader(reader)?;
@@ -149,7 +181,7 @@ impl MuTable {
         materials: &[MaterialDef],
         energy_groups: &[f64],
         provider: &impl MassAttenuationProvider,
-    ) -> Self {
+    ) -> Result<Self, MaterialError> {
         let num_materials = materials.len();
         let num_groups = energy_groups.len();
         let mut data = Vec::with_capacity(num_materials * num_groups);
@@ -158,18 +190,18 @@ impl MuTable {
             for &energy in energy_groups {
                 let mut mu = 0.0;
                 for (&z, &density) in &material.partial_densities {
-                    let mass_att = provider.get_mass_attenuation(z, energy);
+                    let mass_att = provider.get_mass_attenuation(z, energy)?;
                     mu += mass_att * density;
                 }
                 data.push(mu);
             }
         }
 
-        Self {
+        Ok(Self {
             data,
             num_materials,
             num_groups,
-        }
+        })
     }
 
     /// Gets the linear attenuation coefficient mu [cm^-1] in O(1) time.
@@ -196,11 +228,16 @@ impl MuTable {
 // ==== Dummy provider implementation for examples / tests ====
 pub struct DummyProvider;
 impl MassAttenuationProvider for DummyProvider {
-    fn get_mass_attenuation(&self, z: AtomicNumber, _energy_mev: f64) -> f64 {
+    fn get_mass_attenuation(
+        &self,
+        z: AtomicNumber,
+        _energy_mev: f64,
+    ) -> Result<f64, MaterialError> {
         match z {
-            1 => 0.05,
-            8 => 0.06,
-            _ => 0.01,
+            1 => Ok(0.05),
+            8 => Ok(0.06),
+            82 => Ok(0.01),
+            _ => Err(MaterialError::ElementNotFound(z)),
         }
     }
 }
@@ -226,7 +263,7 @@ mod tests {
         let energy_groups = vec![0.5, 1.0, 2.0];
         let provider = DummyProvider;
 
-        let mu_table = MuTable::generate(&materials, &energy_groups, &provider);
+        let mu_table = MuTable::generate(&materials, &energy_groups, &provider).unwrap();
 
         // Hydrogen mass att at DummyProvider: 0.05
         // Oxygen mass att at DummyProvider: 0.06
@@ -250,7 +287,7 @@ mod tests {
         let energy_groups = vec![1.0];
         let provider = DummyProvider;
 
-        let mu_table = MuTable::generate(&materials, &energy_groups, &provider);
+        let mu_table = MuTable::generate(&materials, &energy_groups, &provider).unwrap();
         let mu_func = mu_table.into_closure();
 
         let mu = mu_func(0, 0);
@@ -266,18 +303,18 @@ mod tests {
 
         // Hydrogen (Z=1) at 1.0 MeV
         // NIST value: 1.263E-01 cm2/g
-        let h_1mev = provider.get_mass_attenuation(1, 1.0);
+        let h_1mev = provider.get_mass_attenuation(1, 1.0).unwrap();
         assert!((h_1mev - 0.1263).abs() < 1e-4);
 
         // Lead (Z=82) at 1.0 MeV
         // NIST value: 7.102E-02 cm2/g
-        let pb_1mev = provider.get_mass_attenuation(82, 1.0);
+        let pb_1mev = provider.get_mass_attenuation(82, 1.0).unwrap();
         assert!((pb_1mev - 0.07102).abs() < 1e-5);
 
         // Interpolation test: Hydrogen between 1.0 and 1.5 MeV
         // 1.0 MeV: 0.1263
         // 1.5 MeV: 0.1032
-        let h_1_25mev = provider.get_mass_attenuation(1, 1.25);
+        let h_1_25mev = provider.get_mass_attenuation(1, 1.25).unwrap();
         assert!(h_1_25mev < 0.1263 && h_1_25mev > 0.1032);
     }
 
@@ -293,7 +330,7 @@ mod tests {
 
         // Calculate mu for Water at 1.0 MeV
         let provider = JsonMassAttenuationProvider::from_file("data/elements.json").unwrap();
-        let mu_table = MuTable::generate(&[water], &[1.0], &provider);
+        let mu_table = MuTable::generate(&[water], &[1.0], &provider).unwrap();
 
         // NIST mu/rho for Water at 1.0 MeV: 7.072E-02 cm2/g
         // Density = 1.0, so mu should be ~0.07072 cm-1

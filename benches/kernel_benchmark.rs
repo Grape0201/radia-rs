@@ -30,7 +30,7 @@ fn generate_test_environment() -> (
 
     // Using DummyProvider for MuTable, normally we'd have real cross-sections
     let provider = DummyProvider;
-    let mu_table = MuTable::generate(&materials, &energy_groups, &provider);
+    let mu_table = MuTable::generate(&materials, &energy_groups, &provider).unwrap();
 
     // 2. Setup Buildup
     let mut gp_provider = GPBuildupProvider::new();

@@ -1,3 +1,33 @@
+/// Error type for buildup factor calculations and data management
+#[derive(thiserror::Error, Debug)]
+pub enum BuildupError {
+    #[error("Material '{0}' not found in buildup data")]
+    MaterialNotFound(String),
+
+    #[error("Target quantity '{0:?}' not found for material '{1}'")]
+    QuantityNotFound(TargetQuantity, String),
+
+    #[error("Target energy {target} MeV is too low (minimum {min} MeV) for material '{material}'")]
+    EnergyTooLow {
+        target: f64,
+        min: f64,
+        material: String,
+    },
+
+    #[error("Target energy {target} MeV is too high (maximum {max} MeV) for material '{material}'")]
+    EnergyTooHigh {
+        target: f64,
+        max: f64,
+        material: String,
+    },
+
+    #[error("Buildup data for '{0}' is empty")]
+    EmptyData(String),
+
+    #[error("Invalid table size: expected {expected}, got {actual}")]
+    InvalidTableSize { expected: usize, actual: usize },
+}
+
 /// Model representing the buildup factor and its required parameters
 #[derive(Clone, Copy, Debug)]
 pub enum BuildupModel {
@@ -75,13 +105,22 @@ pub struct BuildupTable {
 
 impl BuildupTable {
     /// Creates a table from pre-calculated models.
-    pub fn new(models: Vec<BuildupModel>, num_materials: usize, num_groups: usize) -> Self {
-        assert_eq!(models.len(), num_materials * num_groups);
-        Self {
+    pub fn new(
+        models: Vec<BuildupModel>,
+        num_materials: usize,
+        num_groups: usize,
+    ) -> Result<Self, BuildupError> {
+        if models.len() != num_materials * num_groups {
+            return Err(BuildupError::InvalidTableSize {
+                expected: num_materials * num_groups,
+                actual: models.len(),
+            });
+        }
+        Ok(Self {
             models,
             num_materials,
             num_groups,
-        }
+        })
     }
 
     /// Derives the buildup factor from material ID, group ID, and optical thickness
@@ -117,7 +156,7 @@ pub struct DummyBuildupProvider;
 impl DummyBuildupProvider {
     pub fn generate_constant_table(num_materials: usize, num_groups: usize) -> BuildupTable {
         let models = vec![BuildupModel::Constant(1.0); num_materials * num_groups];
-        BuildupTable::new(models, num_materials, num_groups)
+        BuildupTable::new(models, num_materials, num_groups).expect("Dummy table generation failed")
     }
 }
 
@@ -162,10 +201,7 @@ impl Default for GPBuildupProvider {
 }
 
 impl GPBuildupProvider {
-    /// Creates a new provider populated with standard data.
-    ///
-    /// Source of data: ANSI/ANS-6.4.3-1991 (Gamma-Ray Attenuation Coefficients and Buildup Factors for Engineering Materials)
-    /// Note: These are representative subsets covering typical energies (0.5 MeV ~ 10.0 MeV) for Exposure (Air Kerma) buildup.
+    /// Creates a new provider.
     pub fn new() -> Self {
         Self {
             data: std::collections::HashMap::new(),
@@ -173,12 +209,14 @@ impl GPBuildupProvider {
     }
 
     /// Programmatically inserts G-P parameters for a material and quantity.
+    /// Data is automatically sorted by energy.
     pub fn insert_data(
         &mut self,
         material_name: String,
         quantity: TargetQuantity,
-        params: Vec<GPParams>,
+        mut params: Vec<GPParams>,
     ) {
+        params.sort_by(|a, b| a.energy_mev.partial_cmp(&b.energy_mev).unwrap());
         self.data.insert((material_name, quantity), params);
     }
 
@@ -198,17 +236,39 @@ impl GPBuildupProvider {
         material_name: &str,
         quantity: TargetQuantity,
         target_energy: f64,
-    ) -> Option<BuildupModel> {
-        let params_list = self.data.get(&(material_name.to_string(), quantity))?;
+    ) -> Result<BuildupModel, BuildupError> {
+        let params_list = self
+            .data
+            .get(&(material_name.to_string(), quantity))
+            .ok_or_else(|| BuildupError::MaterialNotFound(material_name.to_string()))?;
 
         if params_list.is_empty() {
-            return None;
+            return Err(BuildupError::EmptyData(material_name.to_string()));
         }
 
-        // Extrapolation below minimum energy (clamp to min)
-        if target_energy <= params_list.first().unwrap().energy_mev {
+        // Extrapolation is not allowed to ensure accuracy
+        let min_e = params_list.first().unwrap().energy_mev;
+        if target_energy < min_e {
+            return Err(BuildupError::EnergyTooLow {
+                target: target_energy,
+                min: min_e,
+                material: material_name.to_string(),
+            });
+        }
+
+        let max_e = params_list.last().unwrap().energy_mev;
+        if target_energy > max_e {
+            return Err(BuildupError::EnergyTooHigh {
+                target: target_energy,
+                max: max_e,
+                material: material_name.to_string(),
+            });
+        }
+
+        // Exact match for boundaries (or very close)
+        if (target_energy - min_e).abs() < 1e-9 {
             let p = params_list.first().unwrap();
-            return Some(BuildupModel::GeometricProgression {
+            return Ok(BuildupModel::GeometricProgression {
                 a: p.a,
                 b: p.b,
                 c: p.c,
@@ -216,11 +276,9 @@ impl GPBuildupProvider {
                 xk: p.xk,
             });
         }
-
-        // Extrapolation above maximum energy (clamp to max)
-        if target_energy >= params_list.last().unwrap().energy_mev {
+        if (target_energy - max_e).abs() < 1e-9 {
             let p = params_list.last().unwrap();
-            return Some(BuildupModel::GeometricProgression {
+            return Ok(BuildupModel::GeometricProgression {
                 a: p.a,
                 b: p.b,
                 c: p.c,
@@ -245,7 +303,7 @@ impl GPBuildupProvider {
                 // Helper for linear interpolation
                 let lerp = |v1: f64, v2: f64| v1 + weight * (v2 - v1);
 
-                return Some(BuildupModel::GeometricProgression {
+                return Ok(BuildupModel::GeometricProgression {
                     a: lerp(p1.a, p2.a),
                     b: lerp(p1.b, p2.b),
                     c: lerp(p1.c, p2.c),
@@ -255,26 +313,24 @@ impl GPBuildupProvider {
             }
         }
 
-        None
+        // This path should technically not be reached if range checks pass
+        Err(BuildupError::EmptyData(material_name.to_string()))
     }
 
     /// Generates a BuildupTable for the specified material names, target quantity, and energy grid.
-    /// A default model (Constant 1.0) is used if data for a material/quantity is not found.
     pub fn generate_table(
         &self,
         material_names: &[&str],
         quantity: TargetQuantity,
         energy_groups: &[f64],
-    ) -> BuildupTable {
+    ) -> Result<BuildupTable, BuildupError> {
         let num_materials = material_names.len();
         let num_groups = energy_groups.len();
         let mut models = Vec::with_capacity(num_materials * num_groups);
 
         for &mat in material_names {
             for &energy in energy_groups {
-                let model = self
-                    .interpolate(mat, quantity, energy)
-                    .unwrap_or(BuildupModel::Constant(1.0)); // Fallback if material not found
+                let model = self.interpolate(mat, quantity, energy)?;
                 models.push(model);
             }
         }
@@ -366,11 +422,58 @@ mod tests {
             panic!("Expected GP model");
         }
 
+        // Out of range (Extrapolation) should now be an error
+        let err_low = provider.interpolate("DummyMaterial", TargetQuantity::Exposure, 0.1);
+        assert!(matches!(err_low, Err(BuildupError::EnergyTooLow { .. })));
+
+        let err_high = provider.interpolate("DummyMaterial", TargetQuantity::Exposure, 20.0);
+        assert!(matches!(err_high, Err(BuildupError::EnergyTooHigh { .. })));
+
         // Test Table Generation
-        let table =
-            provider.generate_table(&["DummyMaterial"], TargetQuantity::Exposure, &[1.0, 2.0]);
+        let table = provider
+            .generate_table(&["DummyMaterial"], TargetQuantity::Exposure, &[1.0, 2.0])
+            .unwrap();
         // DummyMaterial (material 0), 2.0 MeV (group 1)
         let b = table.get_buildup(0, 1, 5.0); // B(x) at x=5.0
         assert!(b > 1.0); // Should be >> 1.0 due to buildup
+    }
+
+    #[test]
+    fn test_gp_unsorted_insertion() {
+        let mut provider = GPBuildupProvider::new();
+        // Provide data in reverse order of energy
+        let unsorted_data = vec![
+            GPParams {
+                energy_mev: 10.0,
+                a: 0.2,
+                b: 1.3,
+                c: 0.9,
+                d: 0.01,
+                xk: 13.5,
+            },
+            GPParams {
+                energy_mev: 1.0,
+                a: 0.12,
+                b: 2.1,
+                c: 0.53,
+                d: 0.04,
+                xk: 14.4,
+            },
+        ];
+        provider.insert_data(
+            "UnsortedMaterial".to_string(),
+            TargetQuantity::Exposure,
+            unsorted_data,
+        );
+
+        // Interpolation at 2.0 MeV should work if it was sorted correctly
+        let result = provider.interpolate("UnsortedMaterial", TargetQuantity::Exposure, 2.0);
+        assert!(result.is_ok());
+        if let Ok(BuildupModel::GeometricProgression { a, .. }) = result {
+            // a should be between 0.12 (at 1MeV) and 0.2 (at 10MeV)
+            assert!(a > 0.12 && a < 0.2);
+        } else {
+            panic!("Expected GP model, got {:?}", result);
+        }
     }
 }

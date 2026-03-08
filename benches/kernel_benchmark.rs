@@ -66,11 +66,13 @@ fn generate_test_environment() -> (
         dummy_params,
     );
 
-    let buildup_table = gp_provider.generate_table(
-        &["DummyMaterial", "DummyMaterial"],
-        TargetQuantity::AmbientDoseEquivalent,
-        &energy_groups,
-    );
+    let buildup_table = gp_provider
+        .generate_table(
+            &["DummyMaterial", "DummyMaterial"],
+            TargetQuantity::AmbientDoseEquivalent,
+            &energy_groups,
+        )
+        .expect("Failed to generate buildup table");
 
     // 3. Setup Geometry (Nested Spheres: Inner Iron core, Outer Water shell)
     let mut world = World {

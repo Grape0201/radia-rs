@@ -25,8 +25,33 @@ pub struct Ray {
 
 const EPSILON: f32 = 1e-6;
 
+pub struct IntersectionTs {
+    pub count: usize,
+    pub ts: [f32; 2],
+}
+
+impl IntersectionTs {
+    fn new(ts: [f32; 2]) -> Self {
+        Self { count: 2, ts }
+    }
+
+    fn new_single(t: f32) -> Self {
+        Self {
+            count: 1,
+            ts: [t, 0.0],
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            count: 0,
+            ts: [0.0, 0.0],
+        }
+    }
+}
+
 impl Shape {
-    pub fn get_intersections(&self, ray: &Ray) -> Vec<f32> {
+    pub fn get_intersections(&self, ray: &Ray) -> IntersectionTs {
         match self {
             Shape::Sphere { center, radius2 } => {
                 let oc = ray.origin - *center;
@@ -39,11 +64,11 @@ impl Shape {
                     let sqrt_d = discriminant.sqrt();
                     let t1 = (-b - sqrt_d) / a;
                     let t2 = (-b + sqrt_d) / a;
-                    vec![t1.min(t2), t1.max(t2)]
+                    IntersectionTs::new([t1.min(t2), t1.max(t2)])
                 } else if discriminant.abs() <= EPSILON {
-                    vec![-b / a]
+                    IntersectionTs::new_single(-b / a)
                 } else {
-                    vec![]
+                    IntersectionTs::empty()
                 }
             }
             Shape::RectangularPrallelPiped { min, max } => {
@@ -58,11 +83,11 @@ impl Shape {
                 let tmax = tmax_v.min_element();
 
                 if tmin > tmax + EPSILON || tmax < 0.0 {
-                    vec![]
+                    IntersectionTs::empty()
                 } else if (tmax - tmin).abs() <= EPSILON {
-                    vec![tmin]
+                    IntersectionTs::new_single(tmin)
                 } else {
-                    vec![tmin, tmax]
+                    IntersectionTs::new([tmin, tmax])
                 }
             }
             Shape::Cylinder {
@@ -82,18 +107,18 @@ impl Shape {
                 let c = w_cross_d.length_squared() - radius2 * d.length_squared();
 
                 if a.abs() < EPSILON {
-                    vec![]
+                    IntersectionTs::empty()
                 } else {
                     let discriminant = b * b - a * c;
                     if discriminant > EPSILON {
                         let sqrt_d = discriminant.sqrt();
                         let t1 = (-b - sqrt_d) / a;
                         let t2 = (-b + sqrt_d) / a;
-                        vec![t1.min(t2), t1.max(t2)]
+                        IntersectionTs::new([t1.min(t2), t1.max(t2)])
                     } else if discriminant.abs() <= EPSILON {
-                        vec![-b / a]
+                        IntersectionTs::new_single(-b / a)
                     } else {
-                        vec![]
+                        IntersectionTs::empty()
                     }
                 }
             }
@@ -138,9 +163,9 @@ mod tests {
             direction: Vec3A::new(0.0, 0.0, 1.0),
         };
         let ts = sphere.get_intersections(&ray);
-        assert_eq!(ts.len(), 2);
-        assert!((ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts[1] - 3.0).abs() < EPSILON);
+        assert_eq!(ts.count, 2);
+        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
+        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
     }
 
     #[test]
@@ -154,8 +179,8 @@ mod tests {
             direction: Vec3A::new(0.0, 0.0, 1.0),
         };
         let ts = sphere.get_intersections(&ray);
-        assert_eq!(ts.len(), 1);
-        assert!((ts[0] - 2.0).abs() < EPSILON);
+        assert_eq!(ts.count, 1);
+        assert!((ts.ts[0] - 2.0).abs() < EPSILON);
     }
 
     #[test]
@@ -169,9 +194,9 @@ mod tests {
             direction: Vec3A::new(0.0, 0.0, 1.0),
         };
         let ts = rect.get_intersections(&ray);
-        assert_eq!(ts.len(), 2);
-        assert!((ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts[1] - 3.0).abs() < EPSILON);
+        assert_eq!(ts.count, 2);
+        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
+        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
     }
 
     #[test]
@@ -186,8 +211,8 @@ mod tests {
             direction: Vec3A::new(0.0, 0.0, 1.0),
         };
         let ts = cylinder.get_intersections(&ray);
-        assert_eq!(ts.len(), 2);
-        assert!((ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts[1] - 3.0).abs() < EPSILON);
+        assert_eq!(ts.count, 2);
+        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
+        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
     }
 }

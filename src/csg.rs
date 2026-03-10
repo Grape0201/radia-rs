@@ -43,7 +43,8 @@ impl World {
         let mut all_ts = vec![0.0, 1.0];
         // Collect intersections for all shapes
         for shape in self.shapes.values() {
-            all_ts.extend(shape.get_intersections(ray));
+            let ts = shape.get_intersections(ray);
+            all_ts.extend_from_slice(&ts.ts[0..ts.count]);
         }
 
         all_ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));

@@ -115,7 +115,7 @@ mod tests {
             0,
             Shape::Sphere {
                 center: Vec3A::ZERO,
-                radius: 1.0,
+                radius2: 1.0,
             },
         );
         // Shape 1: Sphere at x=1.5, r=1
@@ -123,7 +123,7 @@ mod tests {
             1,
             Shape::Sphere {
                 center: Vec3A::new(1.5, 0.0, 0.0),
-                radius: 1.0,
+                radius2: 1.0,
             },
         );
 

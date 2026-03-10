@@ -83,11 +83,11 @@ fn generate_test_environment() -> (
 
     let inner_sphere = Shape::Sphere {
         center: Vec3A::ZERO,
-        radius: 10.0,
+        radius2: 10.0 * 10.0,
     };
     let outer_sphere = Shape::Sphere {
         center: Vec3A::ZERO,
-        radius: 50.0,
+        radius2: 50.0 * 50.0,
     };
 
     world.shapes.insert(0, inner_sphere);

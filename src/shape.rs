@@ -4,7 +4,7 @@ use glam::Vec3A;
 pub enum Shape {
     Sphere {
         center: Vec3A,
-        radius: f32,
+        radius2: f32, // radius^2
     },
     RectangularPrallelPiped {
         min: Vec3A,
@@ -28,11 +28,11 @@ const EPSILON: f32 = 1e-6;
 impl Shape {
     pub fn get_intersections(&self, ray: &Ray) -> Vec<f32> {
         match self {
-            Shape::Sphere { center, radius } => {
+            Shape::Sphere { center, radius2 } => {
                 let oc = ray.origin - *center;
                 let a = ray.direction.length_squared();
                 let b = oc.dot(ray.direction);
-                let c = oc.length_squared() - radius * radius;
+                let c = oc.length_squared() - radius2;
 
                 let discriminant = b * b - a * c;
                 if discriminant > EPSILON {
@@ -102,9 +102,9 @@ impl Shape {
 
     pub fn contains(&self, p: &Vec3A) -> bool {
         match self {
-            Shape::Sphere { center, radius } => {
+            Shape::Sphere { center, radius2 } => {
                 let dist_sq = (*p - *center).length_squared();
-                dist_sq <= radius * radius + EPSILON
+                dist_sq <= *radius2 + EPSILON
             }
             Shape::RectangularPrallelPiped { min, max } => {
                 p.cmpge(*min - EPSILON).all() && p.cmple(*max + EPSILON).all()
@@ -131,7 +131,7 @@ mod tests {
     fn test_sphere_intersections() {
         let sphere = Shape::Sphere {
             center: Vec3A::ZERO,
-            radius: 1.0,
+            radius2: 1.0,
         };
         let ray = Ray {
             origin: Vec3A::new(0.0, 0.0, -2.0),
@@ -147,7 +147,7 @@ mod tests {
     fn test_sphere_tangent() {
         let sphere = Shape::Sphere {
             center: Vec3A::ZERO,
-            radius: 1.0,
+            radius2: 1.0,
         };
         let ray = Ray {
             origin: Vec3A::new(1.0, 0.0, -2.0),

@@ -9,15 +9,15 @@ pub enum BuildupError {
 
     #[error("Target energy {target} MeV is too low (minimum {min} MeV) for material '{material}'")]
     EnergyTooLow {
-        target: f64,
-        min: f64,
+        target: f32,
+        min: f32,
         material: String,
     },
 
     #[error("Target energy {target} MeV is too high (maximum {max} MeV) for material '{material}'")]
     EnergyTooHigh {
-        target: f64,
-        max: f64,
+        target: f32,
+        max: f32,
         material: String,
     },
 
@@ -32,29 +32,29 @@ pub enum BuildupError {
 #[derive(Clone, Copy, Debug)]
 pub enum BuildupModel {
     /// Ignores scattering, or useful for testing with a fixed value (usually 1.0)
-    Constant(f64),
+    Constant(f32),
 
     /// Taylor form (A, alpha1, alpha2)
-    Taylor { a: f64, alpha1: f64, alpha2: f64 },
+    Taylor { a: f32, alpha1: f32, alpha2: f32 },
 
     /// Berger form (C, D)
-    Berger { c: f64, d: f64 },
+    Berger { c: f32, d: f32 },
 
     /// Geometric Progression (G-P) form.
     /// Has a wide application range (up to 40 mfp) and is the current standard (ANSI/ANS-6.4.3, etc.)
     GeometricProgression {
-        a: f64,
-        b: f64,
-        c: f64,
-        d: f64,
-        xk: f64,
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        xk: f32,
     },
 }
 
 impl BuildupModel {
     /// Calculates the buildup factor given the actual optical thickness (mu * r)
     #[inline(always)]
-    pub fn calculate(&self, optical_thickness: f64) -> f64 {
+    pub fn calculate(&self, optical_thickness: f32) -> f32 {
         match self {
             BuildupModel::Constant(val) => *val,
             BuildupModel::Taylor { a, alpha1, alpha2 } => {
@@ -129,8 +129,8 @@ impl BuildupTable {
         &self,
         material_index: usize,
         group_index: usize,
-        optical_thickness: f64,
-    ) -> f64 {
+        optical_thickness: f32,
+    ) -> f32 {
         debug_assert!(material_index < self.num_materials);
         debug_assert!(group_index < self.num_groups);
         let model = &self.models[material_index * self.num_groups + group_index];
@@ -139,7 +139,7 @@ impl BuildupTable {
 
     /// Creates a closure that looks up the model in O(1) time and returns its calculation result.
     /// Signature: (material_index, group_index, optical_thickness) -> buildup_factor
-    pub fn into_closure(self) -> impl Fn(usize, usize, f64) -> f64 + Send + Sync {
+    pub fn into_closure(self) -> impl Fn(usize, usize, f32) -> f32 + Send + Sync {
         let models = self.models;
         let num_groups = self.num_groups;
         move |mat_idx, grp_idx, optical_thickness| {
@@ -179,12 +179,12 @@ pub enum TargetQuantity {
 /// Parameter set for the G-P method at a specific energy and target quantity.
 #[derive(Clone, Copy, Debug)]
 pub struct GPParams {
-    pub energy_mev: f64,
-    pub a: f64,
-    pub b: f64,
-    pub c: f64,
-    pub d: f64,
-    pub xk: f64,
+    pub energy_mev: f32,
+    pub a: f32,
+    pub b: f32,
+    pub c: f32,
+    pub d: f32,
+    pub xk: f32,
 }
 
 /// A provider that holds hardcoded G-P data and interpolates to an arbitrary energy grid.
@@ -235,7 +235,7 @@ impl GPBuildupProvider {
         &self,
         material_name: &str,
         quantity: TargetQuantity,
-        target_energy: f64,
+        target_energy: f32,
     ) -> Result<BuildupModel, BuildupError> {
         let params_list = self
             .data
@@ -301,7 +301,7 @@ impl GPBuildupProvider {
                 let weight = (log_e - log_e1) / (log_e2 - log_e1);
 
                 // Helper for linear interpolation
-                let lerp = |v1: f64, v2: f64| v1 + weight * (v2 - v1);
+                let lerp = |v1: f32, v2: f32| v1 + weight * (v2 - v1);
 
                 return Ok(BuildupModel::GeometricProgression {
                     a: lerp(p1.a, p2.a),
@@ -322,7 +322,7 @@ impl GPBuildupProvider {
         &self,
         material_names: &[&str],
         quantity: TargetQuantity,
-        energy_groups: &[f64],
+        energy_groups: &[f32],
     ) -> Result<BuildupTable, BuildupError> {
         let num_materials = material_names.len();
         let num_groups = energy_groups.len();

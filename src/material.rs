@@ -18,10 +18,10 @@ pub enum MaterialError {
     ElementNotFound(AtomicNumber),
 
     #[error("Target energy {target} MeV is too low (minimum {min} MeV)")]
-    EnergyTooLow { target: f64, min: f64 },
+    EnergyTooLow { target: f32, min: f32 },
 
     #[error("Target energy {target} MeV is too high (maximum {max} MeV)")]
-    EnergyTooHigh { target: f64, max: f64 },
+    EnergyTooHigh { target: f32, max: f32 },
 
     #[error("{0}")]
     Other(String),
@@ -31,7 +31,7 @@ pub enum MaterialError {
 /// It is responsible for returning the mass attenuation coefficient for a given atomic number and energy.
 pub trait MassAttenuationProvider {
     /// Retrieves the mass attenuation coefficient [cm^2/g] for a specific atomic number and energy (MeV).
-    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f64) -> Result<f64, MaterialError>;
+    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f32) -> Result<f32, MaterialError>;
 }
 
 /// Element data structure for JSON deserialization.
@@ -39,8 +39,8 @@ pub trait MassAttenuationProvider {
 struct ElementData {
     #[serde(alias = "name")]
     _name: String,
-    energies: Vec<f64>,
-    mu_over_rho: Vec<f64>,
+    energies: Vec<f32>,
+    mu_over_rho: Vec<f32>,
 }
 
 /// JSON-based provider for mass attenuation data.
@@ -86,10 +86,10 @@ impl JsonMassAttenuationProvider {
 
     /// Performs log-log linear interpolation for the mass attenuation coefficient.
     fn interpolate(
-        energies: &[f64],
-        values: &[f64],
-        target_energy: f64,
-    ) -> Result<f64, MaterialError> {
+        energies: &[f32],
+        values: &[f32],
+        target_energy: f32,
+    ) -> Result<f32, MaterialError> {
         // do not **extrapolate**
         if target_energy <= energies[0] {
             return Err(MaterialError::EnergyTooLow {
@@ -129,7 +129,7 @@ impl JsonMassAttenuationProvider {
 }
 
 impl MassAttenuationProvider for JsonMassAttenuationProvider {
-    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f64) -> Result<f64, MaterialError> {
+    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f32) -> Result<f32, MaterialError> {
         if let Some(element) = self.elements.get(&z) {
             Self::interpolate(&element.energies, &element.mu_over_rho, energy_mev)
         } else {
@@ -141,8 +141,8 @@ impl MassAttenuationProvider for JsonMassAttenuationProvider {
 /// Composition data structure for JSON deserialization.
 #[derive(Debug, Deserialize)]
 struct CompositionData {
-    density: f64,
-    composition: HashMap<AtomicNumber, f64>,
+    density: f32,
+    composition: HashMap<AtomicNumber, f32>,
 }
 
 /// Registry for standard material compositions.
@@ -160,7 +160,7 @@ impl MaterialRegistry {
     }
 
     /// Returns a MaterialDef and density for a given material name.
-    pub fn get_material(&self, name: &str) -> Option<(MaterialDef, f64)> {
+    pub fn get_material(&self, name: &str) -> Option<(MaterialDef, f32)> {
         self.compositions.get(name).map(|data| {
             let partial_densities = data
                 .composition
@@ -181,12 +181,12 @@ impl MaterialRegistry {
 #[derive(Clone, Debug)]
 pub struct MaterialDef {
     /// Partial density (g/cm^3) of each element composing the material, mapped by its atomic number.
-    pub partial_densities: HashMap<AtomicNumber, f64>,
+    pub partial_densities: HashMap<AtomicNumber, f32>,
 }
 
 impl MaterialDef {
     /// Creates a new material definition.
-    pub fn new(partial_densities: HashMap<AtomicNumber, f64>) -> Self {
+    pub fn new(partial_densities: HashMap<AtomicNumber, f32>) -> Self {
         Self { partial_densities }
     }
 }
@@ -196,7 +196,7 @@ impl MaterialDef {
 pub struct MuTable {
     /// Linear attenuation coefficients [cm^-1] stored in (material_index, group_index) order.
     /// Flattened into a 1D array for performance: data[material_index * num_groups + group_index].
-    data: Vec<f64>,
+    data: Vec<f32>,
     num_materials: usize,
     num_groups: usize,
 }
@@ -206,7 +206,7 @@ impl MuTable {
     /// given the user's materials, energy groups, and a data provider.
     pub fn generate(
         materials: &[MaterialDef],
-        energy_groups: &[f64],
+        energy_groups: &[f32],
         provider: &impl MassAttenuationProvider,
     ) -> Result<Self, MaterialError> {
         let num_materials = materials.len();
@@ -234,7 +234,7 @@ impl MuTable {
     /// Gets the linear attenuation coefficient mu [cm^-1] in O(1) time.
     /// Due to contiguous memory access, this is highly cache-efficient and fast.
     #[inline(always)]
-    pub fn get_mu(&self, material_index: usize, group_index: usize) -> f64 {
+    pub fn get_mu(&self, material_index: usize, group_index: usize) -> f32 {
         debug_assert!(
             material_index < self.num_materials,
             "Invalid material index"
@@ -245,7 +245,7 @@ impl MuTable {
 
     /// Returns a closure that captures the table and provides O(1) access.
     /// You can move this closure without worrying about lifetimes.
-    pub fn into_closure(self) -> impl Fn(usize, usize) -> f64 + Send + Sync {
+    pub fn into_closure(self) -> impl Fn(usize, usize) -> f32 + Send + Sync {
         let data = self.data;
         let num_groups = self.num_groups;
         move |mat_idx, grp_idx| data[mat_idx * num_groups + grp_idx]
@@ -258,11 +258,12 @@ impl MassAttenuationProvider for DummyProvider {
     fn get_mass_attenuation(
         &self,
         z: AtomicNumber,
-        _energy_mev: f64,
-    ) -> Result<f64, MaterialError> {
+        _energy_mev: f32,
+    ) -> Result<f32, MaterialError> {
         match z {
             1 => Ok(0.05),
             8 => Ok(0.06),
+            26 => Ok(0.01),
             82 => Ok(0.01),
             _ => Err(MaterialError::ElementNotFound(z)),
         }

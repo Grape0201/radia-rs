@@ -1,4 +1,5 @@
 use crate::shape::{Ray, Shape};
+use glam::Vec3A;
 use std::collections::HashMap;
 
 pub enum CSGNode {
@@ -9,7 +10,7 @@ pub enum CSGNode {
 }
 
 impl CSGNode {
-    fn contains(&self, p: &(f64, f64, f64), shapes: &HashMap<usize, Shape>) -> bool {
+    fn contains(&self, p: &Vec3A, shapes: &HashMap<usize, Shape>) -> bool {
         match self {
             CSGNode::Union(left, right) => left.contains(p, shapes) || right.contains(p, shapes),
             CSGNode::Intersection(left, right) => {
@@ -33,10 +34,10 @@ pub struct World {
     pub cells: Vec<Cell>,
 }
 
-const EPSILON: f64 = 1e-8;
+const EPSILON: f32 = 1e-6;
 
 impl World {
-    pub fn get_ray_segments(&self, ray: &Ray) -> Vec<(u32, f64)> {
+    pub fn get_ray_segments(&self, ray: &Ray) -> Vec<(u32, f32)> {
         let mut segments = Vec::new();
 
         let mut all_ts = vec![0.0, 1.0];
@@ -74,11 +75,7 @@ impl World {
             }
 
             let t_mid = (t0 + t1) * 0.5;
-            let p_mid = (
-                ray.origin.0 + ray.direction.0 * t_mid,
-                ray.origin.1 + ray.direction.1 * t_mid,
-                ray.origin.2 + ray.direction.2 * t_mid,
-            );
+            let p_mid = ray.origin + ray.direction * t_mid;
 
             for cell in &self.cells {
                 if cell.csg.contains(&p_mid, &self.shapes) {
@@ -94,9 +91,9 @@ impl World {
         segments
     }
 
-    pub fn get_optical_thickness<F>(&self, ray: &Ray, get_mu: F) -> f64
+    pub fn get_optical_thickness<F>(&self, ray: &Ray, get_mu: F) -> f32
     where
-        F: Fn(u32) -> f64,
+        F: Fn(u32) -> f32,
     {
         let segments = self.get_ray_segments(ray);
         let mut total_thickness = 0.0;
@@ -110,7 +107,6 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shape::Vec3;
 
     fn setup_world() -> World {
         let mut shapes = HashMap::new();
@@ -118,11 +114,7 @@ mod tests {
         shapes.insert(
             0,
             Shape::Sphere {
-                center: Vec3 {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
+                center: Vec3A::ZERO,
                 radius: 1.0,
             },
         );
@@ -130,11 +122,7 @@ mod tests {
         shapes.insert(
             1,
             Shape::Sphere {
-                center: Vec3 {
-                    x: 1.5,
-                    y: 0.0,
-                    z: 0.0,
-                },
+                center: Vec3A::new(1.5, 0.0, 0.0),
                 radius: 1.0,
             },
         );
@@ -157,8 +145,8 @@ mod tests {
         });
 
         let ray = Ray {
-            origin: (-2.0, 0.0, 0.0),
-            direction: (1.0, 0.0, 0.0), // Shoot along x-axis
+            origin: Vec3A::new(-2.0, 0.0, 0.0),
+            direction: Vec3A::new(1.0, 0.0, 0.0), // Shoot along x-axis
         };
 
         // Union spans x from -1 to 2.5
@@ -179,8 +167,8 @@ mod tests {
         });
 
         let ray = Ray {
-            origin: (-2.0, 0.0, 0.0),
-            direction: (1.0, 0.0, 0.0),
+            origin: Vec3A::new(-2.0, 0.0, 0.0),
+            direction: Vec3A::new(1.0, 0.0, 0.0),
         };
 
         // Intersection spans x from 0.5 to 1.0
@@ -201,8 +189,8 @@ mod tests {
         });
 
         let ray = Ray {
-            origin: (-2.0, 0.0, 0.0),
-            direction: (1.0, 0.0, 0.0),
+            origin: Vec3A::new(-2.0, 0.0, 0.0),
+            direction: Vec3A::new(1.0, 0.0, 0.0),
         };
 
         // Difference (Shape 0 - Shape 1) spans x from -1.0 to 0.5

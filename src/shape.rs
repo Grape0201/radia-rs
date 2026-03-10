@@ -13,7 +13,7 @@ pub enum Shape {
     Cylinder {
         center: Vec3A,
         direction: Vec3A,
-        radius: f32,
+        radius2: f32, // radius^2
     },
 }
 
@@ -68,7 +68,7 @@ impl Shape {
             Shape::Cylinder {
                 center,
                 direction,
-                radius,
+                radius2,
             } => {
                 let w = ray.origin - *center;
                 let v = ray.direction;
@@ -79,7 +79,7 @@ impl Shape {
 
                 let a = v_cross_d.length_squared();
                 let b = w_cross_d.dot(v_cross_d);
-                let c = w_cross_d.length_squared() - radius * radius * d.length_squared();
+                let c = w_cross_d.length_squared() - radius2 * d.length_squared();
 
                 if a.abs() < EPSILON {
                     vec![]
@@ -112,12 +112,12 @@ impl Shape {
             Shape::Cylinder {
                 center,
                 direction,
-                radius,
+                radius2,
             } => {
                 let w = *p - *center;
                 let cross = w.cross(*direction);
                 let dist_sq = cross.length_squared() / direction.length_squared();
-                dist_sq <= radius * radius + EPSILON
+                dist_sq <= *radius2 + EPSILON
             }
         }
     }
@@ -179,7 +179,7 @@ mod tests {
         let cylinder = Shape::Cylinder {
             center: Vec3A::ZERO,
             direction: Vec3A::Y,
-            radius: 1.0,
+            radius2: 1.0,
         };
         let ray = Ray {
             origin: Vec3A::new(0.0, 0.0, -2.0),

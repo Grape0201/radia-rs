@@ -5,7 +5,7 @@ use radia_rs::csg::{CSGNode, Cell, World};
 use radia_rs::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_rs::material::{DummyProvider, MaterialDef, MuTable};
 use radia_rs::shape::Shape;
-use radia_rs::source::PointSource;
+use radia_rs::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
 use std::hint::black_box;
 
@@ -112,25 +112,7 @@ fn generate_test_environment() -> (
     });
 
     // 4. Setup Sources (e.g. 1000 points arranged in a grid inside the core)
-    let mut sources = Vec::new();
-    let grid_size = 10;
-    for x in 0..grid_size {
-        for y in 0..grid_size {
-            for z in 0..grid_size {
-                let px = (x as f32 - 4.5) * 1.5;
-                let py = (y as f32 - 4.5) * 1.5;
-                let pz = (z as f32 - 4.5) * 1.5;
-
-                // Only place if it's strictly inside the inner sphere
-                if px * px + py * py + pz * pz < 9.0 * 9.0 {
-                    sources.push(PointSource {
-                        position: Vec3A::new(px, py, pz),
-                        intensity: 1.0,
-                    });
-                }
-            }
-        }
-    }
+    let sources = generate_sphere_source(Vec3A::ZERO, 9.0, 10, 10, 10, 1.0);
 
     // 5. Setup Conversion Factors
     let conversion_factors = vec![1.0; energy_groups.len()];

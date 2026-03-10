@@ -1,8 +1,8 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use radia_rs::buildup::{GPBuildupProvider, TargetQuantity};
 use radia_rs::csg::{CSGNode, Cell, World};
-use radia_rs::kernel::calculate_dose_rate_spectrum;
+use radia_rs::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_rs::material::{DummyProvider, MaterialDef, MuTable};
 use radia_rs::shape::Shape;
 use radia_rs::source::PointSource;
@@ -138,7 +138,7 @@ fn generate_test_environment() -> (
     (world, mu_table, buildup_table, sources, conversion_factors)
 }
 
-fn criterion_benchmark(c: &mut Criterion) {
+fn benchmark_single(c: &mut Criterion) {
     let (world, mu_table, buildup_table, sources, conversion_factors) = generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
 
@@ -150,9 +150,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     // We choose material index 0 (Water) for the buildup factor in this benchmark.
     let get_buildup_wrapped = |grp_idx, ot: f32| get_buildup(0, grp_idx, ot);
 
-    c.bench_function("calculate_dose_rate_spectrum", |b| {
+    c.bench_function("calculate_dose_rate", |b| {
         b.iter(|| {
-            calculate_dose_rate_spectrum(
+            calculate_dose_rate(
                 black_box(&get_mu),
                 black_box(&get_buildup_wrapped),
                 black_box(&world),
@@ -164,5 +164,34 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, criterion_benchmark);
+fn benchmark_parallel(c: &mut Criterion) {
+    let (world, mu_table, buildup_table, sources, conversion_factors) = generate_test_environment();
+    let detector_position = Vec3A::new(100.0, 0.0, 0.0);
+    let get_mu = mu_table.into_closure();
+    let get_buildup = buildup_table.into_closure();
+    let get_buildup_wrapped = |grp_idx, ot: f32| get_buildup(0, grp_idx, ot);
+
+    let mut group = c.benchmark_group("Parallel_Dose_Calculation");
+
+    let chunk_sizes = [10, 50, 100, 500, 1000];
+
+    for &size in &chunk_sizes {
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &s| {
+            b.iter(|| {
+                calculate_dose_rate_parallel(
+                    black_box(&get_mu),
+                    black_box(&get_buildup_wrapped),
+                    &world,
+                    &conversion_factors,
+                    detector_position,
+                    &sources,
+                    s,
+                )
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, benchmark_single, benchmark_parallel);
 criterion_main!(benches);

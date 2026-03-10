@@ -1,7 +1,9 @@
+use glam::Vec3A;
+use rayon::prelude::*;
+
 use crate::csg::World;
 use crate::shape::Ray;
 use crate::source::PointSource;
-use glam::Vec3A;
 
 /// Calculate the total integrated dose rate from multiple point sources over an energy spectrum.
 /// This loops over both energy divisions and source divisions, and is optimized by extracting
@@ -16,7 +18,7 @@ use glam::Vec3A;
 ///   per energy group.
 /// * `detector_position` - The 3D coordinates `Vec3A` of the detector.
 /// * `sources` - A slice of `PointSource` instances to integrate over.
-pub fn calculate_dose_rate_spectrum<F, B>(
+pub fn calculate_dose_rate<F, B>(
     get_mu: &F,
     get_buildup: &B,
     world: &World,
@@ -77,6 +79,34 @@ where
     total_dose
 }
 
+pub fn calculate_dose_rate_parallel<F, B>(
+    get_mu: &F,
+    get_buildup: &B,
+    world: &World,
+    conversion_factors: &[f32],
+    detector_position: Vec3A,
+    sources: &[PointSource],
+    chunk_size: usize,
+) -> f32
+where
+    F: Fn(usize, usize) -> f32 + Sync,
+    B: Fn(usize, f32) -> f32 + Sync,
+{
+    sources
+        .par_chunks(chunk_size)
+        .map(|source_chunk| {
+            calculate_dose_rate(
+                get_mu,
+                get_buildup,
+                world,
+                conversion_factors,
+                detector_position,
+                source_chunk,
+            )
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,7 +132,7 @@ mod tests {
 
         let conversion_factors = vec![1.0];
 
-        let dose = calculate_dose_rate_spectrum(
+        let dose = calculate_dose_rate(
             &get_mu,
             &get_buildup,
             &world,

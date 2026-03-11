@@ -146,6 +146,37 @@ impl Shape {
             }
         }
     }
+
+    pub fn sdf(&self, p: &Vec3A) -> f32 {
+        match self {
+            Shape::Sphere { center, radius2 } => {
+                let radius = radius2.sqrt();
+                (*p - *center).length() - radius
+            }
+            Shape::RectangularPrallelPiped { min, max } => {
+                let center = (*min + *max) * 0.5;
+                let extents = (*max - *min) * 0.5;
+                let q = (*p - center).abs() - extents;
+                let outside = q.max(Vec3A::ZERO).length();
+                let inside = q.max_element().min(0.0);
+                outside + inside
+            }
+            Shape::Cylinder {
+                center,
+                direction,
+                radius2,
+            } => {
+                let dir_len = direction.length();
+                if dir_len <= EPSILON {
+                    f32::INFINITY
+                } else {
+                    let w = *p - *center;
+                    let radial = w.cross(*direction).length() / dir_len;
+                    radial - radius2.sqrt()
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -214,5 +245,30 @@ mod tests {
         assert_eq!(ts.count, 2);
         assert!((ts.ts[0] - 1.0).abs() < EPSILON);
         assert!((ts.ts[1] - 3.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_shape_sdf() {
+        let sphere = Shape::Sphere {
+            center: Vec3A::ZERO,
+            radius2: 4.0,
+        };
+        assert!((sphere.sdf(&Vec3A::ZERO) + 2.0).abs() < EPSILON);
+        assert!((sphere.sdf(&Vec3A::new(3.0, 0.0, 0.0)) - 1.0).abs() < EPSILON);
+
+        let rect = Shape::RectangularPrallelPiped {
+            min: Vec3A::new(-1.0, -1.0, -1.0),
+            max: Vec3A::new(1.0, 1.0, 1.0),
+        };
+        assert!(rect.sdf(&Vec3A::ZERO).is_sign_negative());
+        assert!((rect.sdf(&Vec3A::new(2.0, 0.0, 0.0)) - 1.0).abs() < EPSILON);
+
+        let cylinder = Shape::Cylinder {
+            center: Vec3A::ZERO,
+            direction: Vec3A::Y,
+            radius2: 1.0,
+        };
+        assert!((cylinder.sdf(&Vec3A::ZERO) + 1.0).abs() < EPSILON);
+        assert!((cylinder.sdf(&Vec3A::new(2.0, 0.0, 0.0)) - 1.0).abs() < EPSILON);
     }
 }

@@ -43,12 +43,9 @@ where
             continue;
         }
 
-        let distance = distance_sq.sqrt();
-        let direction_dir = diff / distance;
-
         let ray = Ray {
             origin: source.position,
-            direction: direction_dir,
+            vector: diff,
         };
 
         // Get material segments once for this source (Optimized step for speed)

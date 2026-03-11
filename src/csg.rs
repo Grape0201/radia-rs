@@ -39,6 +39,10 @@ const EPSILON: f32 = 1e-6;
 impl World {
     pub fn get_ray_segments(&self, ray: &Ray) -> Vec<(u32, f32)> {
         let mut segments = Vec::new();
+        let dir_len = ray.vector.length();
+        if dir_len <= EPSILON {
+            return segments;
+        }
 
         let mut all_ts = vec![0.0, 1.0];
         // Collect intersections for all shapes
@@ -76,11 +80,11 @@ impl World {
             }
 
             let t_mid = (t0 + t1) * 0.5;
-            let p_mid = ray.origin + ray.direction * t_mid;
+            let p_mid = ray.origin + ray.vector * t_mid;
 
             for cell in &self.cells {
                 if cell.csg.contains(&p_mid, &self.shapes) {
-                    let length = t1 - t0;
+                    let length = (t1 - t0) * dir_len;
                     segments.push((cell.material_id, length));
                     // Stop checking cells once we find the one containing this segment
                     // Assuming cells do not overlap
@@ -147,7 +151,7 @@ mod tests {
 
         let ray = Ray {
             origin: Vec3A::new(-2.0, 0.0, 0.0),
-            direction: Vec3A::new(1.0, 0.0, 0.0), // Shoot along x-axis
+            vector: Vec3A::new(5.5, 0.0, 0.0), // Shoot along x-axis
         };
 
         // Union spans x from -1 to 2.5
@@ -169,7 +173,7 @@ mod tests {
 
         let ray = Ray {
             origin: Vec3A::new(-2.0, 0.0, 0.0),
-            direction: Vec3A::new(1.0, 0.0, 0.0),
+            vector: Vec3A::new(5.5, 0.0, 0.0),
         };
 
         // Intersection spans x from 0.5 to 1.0
@@ -191,7 +195,7 @@ mod tests {
 
         let ray = Ray {
             origin: Vec3A::new(-2.0, 0.0, 0.0),
-            direction: Vec3A::new(1.0, 0.0, 0.0),
+            vector: Vec3A::new(5.5, 0.0, 0.0),
         };
 
         // Difference (Shape 0 - Shape 1) spans x from -1.0 to 0.5

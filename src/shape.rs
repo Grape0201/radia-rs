@@ -1,11 +1,12 @@
 use glam::Vec3A;
-use std::cmp::Ordering;
 
+/// Only convex shapes are supported.
 #[derive(Debug, Clone)]
 pub enum Shape {
     Sphere {
         center: Vec3A,
-        radius2: f32, // radius^2
+        /// radius^2
+        radius2: f32,
     },
     RectangularPrallelPiped {
         min: Vec3A,
@@ -13,8 +14,10 @@ pub enum Shape {
     },
     FiniteCylinder {
         center: Vec3A,
+        /// unit vector
         direction: Vec3A,
-        radius2: f32, // radius^2
+        /// radius^2
+        radius2: f32,
         half_height: f32,
     },
 }
@@ -22,59 +25,68 @@ pub enum Shape {
 #[derive(Debug, Clone)]
 pub struct Ray {
     pub origin: Vec3A,
-    pub direction: Vec3A,
+    /// from origin to the detector point
+    pub vector: Vec3A,
 }
 
 const EPSILON: f32 = 1e-6;
+const SEGMENT_MIN: f32 = EPSILON;
+const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 
 pub struct IntersectionTs {
     pub count: usize,
+    /// 0 < ts[0],ts[1] < 1
     pub ts: [f32; 2],
 }
 
 impl IntersectionTs {
-    fn new(ts: [f32; 2]) -> Self {
-        Self { count: 2, ts }
-    }
-
-    fn new_single(t: f32) -> Self {
-        Self {
-            count: 1,
-            ts: [t, 0.0],
-        }
-    }
-
     fn empty() -> Self {
         Self {
             count: 0,
             ts: [0.0, 0.0],
         }
     }
+
+    fn push_candidate(&mut self, value: f32) {
+        if value <= SEGMENT_MIN || value >= SEGMENT_MAX {
+            return;
+        }
+
+        match self.count {
+            0 => {
+                self.ts[0] = value;
+                self.count = 1;
+            }
+            1 => {
+                self.ts[1] = value;
+                self.count = 2;
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Shape {
     pub fn get_intersections(&self, ray: &Ray) -> IntersectionTs {
+        let mut hits = IntersectionTs::empty();
         match self {
             Shape::Sphere { center, radius2 } => {
                 let oc = ray.origin - *center;
-                let a = ray.direction.length_squared();
-                let b = oc.dot(ray.direction);
+                let a = ray.vector.length_squared();
+                let b = oc.dot(ray.vector);
                 let c = oc.length_squared() - radius2;
-
                 let discriminant = b * b - a * c;
                 if discriminant > EPSILON {
                     let sqrt_d = discriminant.sqrt();
-                    let t1 = (-b - sqrt_d) / a;
-                    let t2 = (-b + sqrt_d) / a;
-                    IntersectionTs::new([t1.min(t2), t1.max(t2)])
+                    hits.push_candidate((-b - sqrt_d) / a);
+                    hits.push_candidate((-b + sqrt_d) / a);
                 } else if discriminant.abs() <= EPSILON {
-                    IntersectionTs::new_single(-b / a)
-                } else {
-                    IntersectionTs::empty()
+                    hits.push_candidate(-b / a);
                 }
+                hits
             }
             Shape::RectangularPrallelPiped { min, max } => {
-                let inv_dir = 1.0 / ray.direction;
+                let inv_dir = 1.0 / ray.vector;
                 let t0 = (*min - ray.origin) * inv_dir;
                 let t1 = (*max - ray.origin) * inv_dir;
 
@@ -84,12 +96,12 @@ impl Shape {
                 let tmin = tmin_v.max_element();
                 let tmax = tmax_v.min_element();
 
-                if tmin > tmax + EPSILON || tmax < 0.0 {
-                    IntersectionTs::empty()
-                } else if (tmax - tmin).abs() <= EPSILON {
-                    IntersectionTs::new_single(tmin)
+                if tmin > tmax + EPSILON {
+                    hits
                 } else {
-                    IntersectionTs::new([tmin, tmax])
+                    hits.push_candidate(tmin);
+                    hits.push_candidate(tmax);
+                    hits
                 }
             }
             Shape::FiniteCylinder {
@@ -98,77 +110,58 @@ impl Shape {
                 radius2,
                 half_height,
             } => {
-                let axis_len = direction.length();
-                if axis_len <= EPSILON {
-                    IntersectionTs::empty()
-                } else {
-                    let axis = *direction / axis_len;
-                    let mut ts_candidates: Vec<f32> = Vec::new();
+                if *half_height <= EPSILON {
+                    return hits;
+                }
+                let axis = *direction;
 
-                    let v = ray.direction;
-                    let w = ray.origin - *center;
+                let v = ray.vector;
+                let w = ray.origin - *center;
 
-                    let v_cross_axis = v.cross(axis);
-                    let w_cross_axis = w.cross(axis);
+                let v_cross_axis = v.cross(axis);
+                let w_cross_axis = w.cross(axis);
 
-                    let a = v_cross_axis.length_squared();
-                    let b = w_cross_axis.dot(v_cross_axis);
-                    let c = w_cross_axis.length_squared() - *radius2;
+                let a = v_cross_axis.length_squared();
+                let b = w_cross_axis.dot(v_cross_axis);
+                let c = w_cross_axis.length_squared() - *radius2;
 
-                    if a.abs() > EPSILON {
-                        let discriminant = b * b - a * c;
-                        if discriminant > EPSILON {
-                            let sqrt_d = discriminant.sqrt();
-                            for &t in &[(-b - sqrt_d) / a, (-b + sqrt_d) / a] {
-                                let point = ray.origin + ray.direction * t;
-                                let axial = (point - *center).dot(axis);
-                                if axial.abs() <= *half_height + EPSILON {
-                                    ts_candidates.push(t);
-                                }
-                            }
-                        } else if discriminant.abs() <= EPSILON {
-                            let t = -b / a;
-                            let point = ray.origin + ray.direction * t;
+                if a.abs() > EPSILON {
+                    let discriminant = b * b - a * c;
+                    if discriminant > EPSILON {
+                        let sqrt_d = discriminant.sqrt();
+                        for &t in &[(-b - sqrt_d) / a, (-b + sqrt_d) / a] {
+                            let point = ray.origin + ray.vector * t;
                             let axial = (point - *center).dot(axis);
                             if axial.abs() <= *half_height + EPSILON {
-                                ts_candidates.push(t);
+                                hits.push_candidate(t);
                             }
                         }
-                    }
-
-                    let axis_dot_dir = ray.direction.dot(axis);
-                    if axis_dot_dir.abs() > EPSILON {
-                        for &sign in &[1.0f32, -1.0f32] {
-                            let cap_center = *center + axis * (sign * *half_height);
-                            let t = (cap_center - ray.origin).dot(axis) / axis_dot_dir;
-                            let point = ray.origin + ray.direction * t;
-                            let radial = point - cap_center;
-                            let radial_proj = radial.dot(axis);
-                            let radial_vec = radial - axis * radial_proj;
-                            if radial_vec.length_squared() <= *radius2 + EPSILON {
-                                ts_candidates.push(t);
-                            }
+                    } else if discriminant.abs() <= EPSILON {
+                        let t = -b / a;
+                        let point = ray.origin + ray.vector * t;
+                        let axial = (point - *center).dot(axis);
+                        if axial.abs() <= *half_height + EPSILON {
+                            hits.push_candidate(t);
                         }
-                    }
-
-                    ts_candidates.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-
-                    let mut unique_ts: Vec<f32> = Vec::new();
-                    for t in ts_candidates {
-                        if unique_ts
-                            .last()
-                            .map_or(true, |prev| (t - *prev).abs() > EPSILON)
-                        {
-                            unique_ts.push(t);
-                        }
-                    }
-
-                    match unique_ts.len() {
-                        0 => IntersectionTs::empty(),
-                        1 => IntersectionTs::new_single(unique_ts[0]),
-                        _ => IntersectionTs::new([unique_ts[0], *unique_ts.last().unwrap()]),
                     }
                 }
+
+                let axis_dot_dir = ray.vector.dot(axis);
+                if axis_dot_dir.abs() > EPSILON {
+                    for &sign in &[1.0f32, -1.0f32] {
+                        let cap_center = *center + axis * (sign * *half_height);
+                        let t = (cap_center - ray.origin).dot(axis) / axis_dot_dir;
+                        let point = ray.origin + ray.vector * t;
+                        let radial = point - cap_center;
+                        let radial_proj = radial.dot(axis);
+                        let radial_vec = radial - axis * radial_proj;
+                        if radial_vec.length_squared() <= *radius2 + EPSILON {
+                            hits.push_candidate(t);
+                        }
+                    }
+                }
+
+                hits
             }
         }
     }
@@ -188,11 +181,10 @@ impl Shape {
                 radius2,
                 half_height,
             } => {
-                let dir_len = direction.length();
-                if dir_len <= EPSILON {
+                if direction.length_squared() <= EPSILON {
                     false
                 } else {
-                    let axis = *direction / dir_len;
+                    let axis = *direction;
                     let w = *p - *center;
                     let axial = w.dot(axis);
                     if axial.abs() > *half_height + EPSILON {
@@ -226,11 +218,10 @@ impl Shape {
                 radius2,
                 half_height,
             } => {
-                let dir_len = direction.length();
-                if dir_len <= EPSILON {
+                if direction.length_squared() <= EPSILON {
                     f32::INFINITY
                 } else {
-                    let axis = *direction / dir_len;
+                    let axis = *direction;
                     let w = *p - *center;
                     let axial = w.dot(axis);
                     let radial = (w - axis * axial).length();
@@ -258,12 +249,12 @@ mod tests {
         };
         let ray = Ray {
             origin: Vec3A::new(0.0, 0.0, -2.0),
-            direction: Vec3A::new(0.0, 0.0, 1.0),
+            vector: Vec3A::new(0.0, 0.0, 4.0),
         };
         let ts = sphere.get_intersections(&ray);
         assert_eq!(ts.count, 2);
-        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
+        assert!((ts.ts[0] - 0.25).abs() < EPSILON);
+        assert!((ts.ts[1] - 0.75).abs() < EPSILON);
     }
 
     #[test]
@@ -274,11 +265,11 @@ mod tests {
         };
         let ray = Ray {
             origin: Vec3A::new(1.0, 0.0, -2.0),
-            direction: Vec3A::new(0.0, 0.0, 1.0),
+            vector: Vec3A::new(0.0, 0.0, 4.0),
         };
         let ts = sphere.get_intersections(&ray);
         assert_eq!(ts.count, 1);
-        assert!((ts.ts[0] - 2.0).abs() < EPSILON);
+        assert!((ts.ts[0] - 0.5).abs() < EPSILON);
     }
 
     #[test]
@@ -289,12 +280,12 @@ mod tests {
         };
         let ray = Ray {
             origin: Vec3A::new(0.0, 0.0, -2.0),
-            direction: Vec3A::new(0.0, 0.0, 1.0),
+            vector: Vec3A::new(0.0, 0.0, 4.0),
         };
         let ts = rect.get_intersections(&ray);
         assert_eq!(ts.count, 2);
-        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
+        assert!((ts.ts[0] - 0.25).abs() < EPSILON);
+        assert!((ts.ts[1] - 0.75).abs() < EPSILON);
     }
 
     #[test]
@@ -305,22 +296,32 @@ mod tests {
             radius2: 1.0,
             half_height: 1.0,
         };
+        // from -z to z
         let ray = Ray {
             origin: Vec3A::new(0.0, 0.0, -2.0),
-            direction: Vec3A::new(0.0, 0.0, 1.0),
+            vector: Vec3A::new(0.0, 0.0, 4.0),
         };
         let ts = cylinder.get_intersections(&ray);
         assert_eq!(ts.count, 2);
-        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
+        assert!((ts.ts[0] - 0.25).abs() < EPSILON);
+        assert!((ts.ts[1] - 0.75).abs() < EPSILON);
+        // from top to bottom
         let ray = Ray {
             origin: Vec3A::new(0.0, 2.0, 0.0),
-            direction: Vec3A::new(0.0, -1.0, 0.0),
+            vector: Vec3A::new(0.0, -4.0, 0.0),
         };
         let ts = cylinder.get_intersections(&ray);
         assert_eq!(ts.count, 2);
-        assert!((ts.ts[0] - 1.0).abs() < EPSILON);
-        assert!((ts.ts[1] - 3.0).abs() < EPSILON);
+        assert!((ts.ts[0] - 0.25).abs() < EPSILON);
+        assert!((ts.ts[1] - 0.75).abs() < EPSILON);
+        // from top to center
+        let ray = Ray {
+            origin: Vec3A::new(0.0, 2.0, 0.0),
+            vector: Vec3A::new(0.0, -2.0, 0.0),
+        };
+        let ts = cylinder.get_intersections(&ray);
+        assert_eq!(ts.count, 1);
+        assert!((ts.ts[0] - 0.5).abs() < EPSILON);
     }
 
     #[test]

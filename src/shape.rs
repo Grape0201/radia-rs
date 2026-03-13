@@ -22,6 +22,31 @@ pub enum Shape {
     },
 }
 
+impl std::fmt::Display for Shape {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Shape::Sphere { center, radius2 } => {
+                write!(f, "Sphere {{ center: {:?}, radius2: {} }}", center, radius2)
+            }
+            Shape::RectangularPrallelPiped { min, max } => write!(
+                f,
+                "RectangularPrallelPiped {{ min: {:?}, max: {:?} }}",
+                min, max
+            ),
+            Shape::FiniteCylinder {
+                center,
+                direction,
+                radius2,
+                half_height,
+            } => write!(
+                f,
+                "FiniteCylinder {{ center: {:?}, direction: {:?}, radius2: {}, half_height: {} }}",
+                center, direction, radius2, half_height
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Ray {
     pub origin: Vec3A,
@@ -67,6 +92,7 @@ impl IntersectionTs {
 }
 
 impl Shape {
+    #[inline(always)]
     pub fn get_intersections(&self, ray: &Ray) -> IntersectionTs {
         let mut hits = IntersectionTs::empty();
         match self {
@@ -166,6 +192,7 @@ impl Shape {
         }
     }
 
+    #[inline(always)]
     pub fn contains(&self, p: &Vec3A) -> bool {
         match self {
             Shape::Sphere { center, radius2 } => {
@@ -181,19 +208,17 @@ impl Shape {
                 radius2,
                 half_height,
             } => {
-                if direction.length_squared() <= EPSILON {
-                    false
-                } else {
-                    let axis = *direction;
-                    let w = *p - *center;
-                    let axial = w.dot(axis);
-                    if axial.abs() > *half_height + EPSILON {
-                        false
-                    } else {
-                        let radial = w - axis * axial;
-                        radial.length_squared() <= *radius2 + EPSILON
-                    }
+                if *half_height <= EPSILON {
+                    return false;
                 }
+                let axis = *direction;
+                let w = *p - *center;
+                let axial = w.dot(axis);
+                if axial.abs() > *half_height + EPSILON {
+                    return false;
+                }
+                let radial = w - axis * axial;
+                radial.length_squared() <= *radius2 + EPSILON
             }
         }
     }
@@ -218,20 +243,19 @@ impl Shape {
                 radius2,
                 half_height,
             } => {
-                if direction.length_squared() <= EPSILON {
-                    f32::INFINITY
-                } else {
-                    let axis = *direction;
-                    let w = *p - *center;
-                    let axial = w.dot(axis);
-                    let radial = (w - axis * axial).length();
-                    let radius = radius2.sqrt();
-                    let dx = radial - radius;
-                    let dy = axial.abs() - *half_height;
-                    let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt();
-                    let inside = dx.max(dy).min(0.0);
-                    outside + inside
+                if *half_height <= EPSILON {
+                    return f32::INFINITY;
                 }
+                let axis = *direction;
+                let w = *p - *center;
+                let axial = w.dot(axis);
+                let radial = (w - axis * axial).length();
+                let radius = radius2.sqrt();
+                let dx = radial - radius;
+                let dy = axial.abs() - *half_height;
+                let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt();
+                let inside = dx.max(dy).min(0.0);
+                outside + inside
             }
         }
     }

@@ -13,5 +13,10 @@ thiserror = "2.0"
 [[bench]]
 name = "kernel_benchmark"
 harness = false
+
+[[bench]]
+name = "intersection_benchmark"
+harness = false
+
 [dev-dependencies]
 criterion = "0.8.2"

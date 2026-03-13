@@ -19,4 +19,5 @@ name = "intersection_benchmark"
 harness = false
 
 [dev-dependencies]
-criterion = "0.8.2"
+criterion = "0.5.1"
+pprof = { version = "0.15", features = ["flamegraph", "criterion"] }

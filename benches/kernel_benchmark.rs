@@ -1,5 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
+use pprof::criterion::{Output, PProfProfiler};
 use radia_rs::buildup::{GPBuildupProvider, TargetQuantity};
 use radia_rs::csg::{CSGNode, Cell, World};
 use radia_rs::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
@@ -8,6 +9,10 @@ use radia_rs::shape::Shape;
 use radia_rs::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
 use std::hint::black_box;
+
+fn config_with_profiler() -> Criterion {
+    Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)))
+}
 
 fn generate_test_environment() -> (
     World,
@@ -175,5 +180,9 @@ fn benchmark_parallel(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, benchmark_single, benchmark_parallel);
+criterion_group!(
+    name = benches;
+    config = config_with_profiler();
+    targets = benchmark_single, benchmark_parallel
+);
 criterion_main!(benches);

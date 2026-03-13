@@ -115,7 +115,7 @@ fn generate_test_environment() -> (
             )),
         ),
     });
-    assert!(world.check_primitive_indices());
+    world.check_primitive_indices().unwrap();
 
     // 4. Setup Sources (e.g. 1000 points arranged in a grid inside the core)
     let sources = generate_sphere_source(Vec3A::ZERO, 9.0, 10, 10, 10, 1.0);

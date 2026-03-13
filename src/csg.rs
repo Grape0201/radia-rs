@@ -23,21 +23,30 @@ impl CSGNode {
             CSGNode::Primitive(id) => primitives[*id].contains(p),
         }
     }
-    fn check_primitive_indices(&self, primitive_len: usize) -> bool {
+    fn check_primitive_indices(&self, primitive_len: usize) -> Result<(), String> {
         match self {
             CSGNode::Union(left, right) => {
-                left.check_primitive_indices(primitive_len)
-                    && right.check_primitive_indices(primitive_len)
+                left.check_primitive_indices(primitive_len)?;
+                right.check_primitive_indices(primitive_len)?;
+                Ok(())
             }
             CSGNode::Intersection(left, right) => {
-                left.check_primitive_indices(primitive_len)
-                    && right.check_primitive_indices(primitive_len)
+                left.check_primitive_indices(primitive_len)?;
+                right.check_primitive_indices(primitive_len)?;
+                Ok(())
             }
             CSGNode::Difference(left, right) => {
                 left.check_primitive_indices(primitive_len)
-                    && right.check_primitive_indices(primitive_len)
+                    .and_then(|_| right.check_primitive_indices(primitive_len))?;
+                Ok(())
             }
-            CSGNode::Primitive(id) => *id < primitive_len,
+            CSGNode::Primitive(id) => {
+                if *id >= primitive_len {
+                    Err(format!("Primitive index out of bounds: {}", *id))
+                } else {
+                    Ok(())
+                }
+            }
         }
     }
 }
@@ -111,13 +120,58 @@ impl World {
         }
     }
 
-    pub fn check_primitive_indices(&self) -> bool {
+    pub fn check_primitive_indices(&self) -> Result<(), String> {
         let primitive_len = self.primitives.len();
         for cell in &self.cells {
-            if !cell.csg.check_primitive_indices(primitive_len) {
-                return false;
-            }
+            cell.csg.check_primitive_indices(primitive_len)?;
         }
-        true
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_primitive_indices() {
+        let world = World {
+            primitives: vec![],
+            cells: vec![],
+        };
+        assert!(world.check_primitive_indices().is_ok());
+        let world = World {
+            primitives: vec![],
+            cells: vec![Cell {
+                csg: CSGNode::Primitive(0),
+                material_id: 0,
+            }],
+        };
+        assert!(world.check_primitive_indices().is_err());
+        let world = World {
+            primitives: vec![Primitive::Sphere {
+                center: Vec3A::ZERO,
+                radius2: 1.0,
+            }],
+            cells: vec![Cell {
+                csg: CSGNode::Primitive(0),
+                material_id: 0,
+            }],
+        };
+        assert!(world.check_primitive_indices().is_ok());
+        let world = World {
+            primitives: vec![Primitive::Sphere {
+                center: Vec3A::ZERO,
+                radius2: 1.0,
+            }],
+            cells: vec![Cell {
+                csg: CSGNode::Union(
+                    Box::new(CSGNode::Primitive(0)),
+                    Box::new(CSGNode::Primitive(1)),
+                ),
+                material_id: 0,
+            }],
+        };
+        assert!(world.check_primitive_indices().is_err());
     }
 }

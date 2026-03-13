@@ -5,7 +5,7 @@ use radia_rs::buildup::{GPBuildupProvider, TargetQuantity};
 use radia_rs::csg::{CSGNode, Cell, World};
 use radia_rs::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_rs::material::{DummyProvider, MaterialDef, MuTable};
-use radia_rs::shape::Shape;
+use radia_rs::primitive::Primitive;
 use radia_rs::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
 use std::hint::black_box;
@@ -82,21 +82,21 @@ fn generate_test_environment() -> (
 
     // 3. Setup Geometry (Nested Spheres: Inner Iron core, Outer Water shell)
     let mut world = World {
-        shapes: vec![],
+        primitives: vec![],
         cells: vec![],
     };
 
-    let inner_sphere = Shape::Sphere {
+    let inner_sphere = Primitive::Sphere {
         center: Vec3A::ZERO,
         radius2: 10.0 * 10.0,
     };
-    let outer_sphere = Shape::Sphere {
+    let outer_sphere = Primitive::Sphere {
         center: Vec3A::ZERO,
         radius2: 50.0 * 50.0,
     };
 
-    world.shapes.push(inner_sphere);
-    world.shapes.push(outer_sphere);
+    world.primitives.push(inner_sphere);
+    world.primitives.push(outer_sphere);
 
     // Cell 0: Iron core (material index 1)
     world.cells.push(Cell {

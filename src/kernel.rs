@@ -2,7 +2,7 @@ use glam::Vec3A;
 use rayon::prelude::*;
 
 use crate::csg::World;
-use crate::shape::Ray;
+use crate::primitive::Ray;
 use crate::source::PointSource;
 
 /// Calculate the total integrated dose rate from multiple point sources over an energy spectrum.
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_unshielded_point_source_spectrum() {
         let world = World {
-            shapes: vec![],
+            primitives: vec![],
             cells: vec![],
         };
 

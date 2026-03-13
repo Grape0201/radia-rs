@@ -1,8 +1,8 @@
 use glam::Vec3A;
 
-/// Only convex shapes are supported.
+/// Only convex primitives are supported.
 #[derive(Debug, Clone)]
-pub enum Shape {
+pub enum Primitive {
     Sphere {
         center: Vec3A,
         /// radius^2
@@ -22,18 +22,18 @@ pub enum Shape {
     },
 }
 
-impl std::fmt::Display for Shape {
+impl std::fmt::Display for Primitive {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Shape::Sphere { center, radius2 } => {
+            Primitive::Sphere { center, radius2 } => {
                 write!(f, "Sphere {{ center: {:?}, radius2: {} }}", center, radius2)
             }
-            Shape::RectangularPrallelPiped { min, max } => write!(
+            Primitive::RectangularPrallelPiped { min, max } => write!(
                 f,
                 "RectangularPrallelPiped {{ min: {:?}, max: {:?} }}",
                 min, max
             ),
-            Shape::FiniteCylinder {
+            Primitive::FiniteCylinder {
                 center,
                 direction,
                 radius2,
@@ -91,12 +91,12 @@ impl IntersectionTs {
     }
 }
 
-impl Shape {
+impl Primitive {
     #[inline(always)]
     pub fn get_intersections(&self, ray: &Ray) -> IntersectionTs {
         let mut hits = IntersectionTs::empty();
         match self {
-            Shape::Sphere { center, radius2 } => {
+            Primitive::Sphere { center, radius2 } => {
                 let oc = ray.origin - *center;
                 let a = ray.vector.length_squared();
                 let b = oc.dot(ray.vector);
@@ -111,7 +111,7 @@ impl Shape {
                 }
                 hits
             }
-            Shape::RectangularPrallelPiped { min, max } => {
+            Primitive::RectangularPrallelPiped { min, max } => {
                 let inv_dir = 1.0 / ray.vector;
                 let t0 = (*min - ray.origin) * inv_dir;
                 let t1 = (*max - ray.origin) * inv_dir;
@@ -130,7 +130,7 @@ impl Shape {
                     hits
                 }
             }
-            Shape::FiniteCylinder {
+            Primitive::FiniteCylinder {
                 center,
                 direction,
                 radius2,
@@ -195,14 +195,14 @@ impl Shape {
     #[inline(always)]
     pub fn contains(&self, p: &Vec3A) -> bool {
         match self {
-            Shape::Sphere { center, radius2 } => {
+            Primitive::Sphere { center, radius2 } => {
                 let dist_sq = (*p - *center).length_squared();
                 dist_sq <= *radius2 + EPSILON
             }
-            Shape::RectangularPrallelPiped { min, max } => {
+            Primitive::RectangularPrallelPiped { min, max } => {
                 p.cmpge(*min - EPSILON).all() && p.cmple(*max + EPSILON).all()
             }
-            Shape::FiniteCylinder {
+            Primitive::FiniteCylinder {
                 center,
                 direction,
                 radius2,
@@ -225,11 +225,11 @@ impl Shape {
 
     pub fn sdf(&self, p: &Vec3A) -> f32 {
         match self {
-            Shape::Sphere { center, radius2 } => {
+            Primitive::Sphere { center, radius2 } => {
                 let radius = radius2.sqrt();
                 (*p - *center).length() - radius
             }
-            Shape::RectangularPrallelPiped { min, max } => {
+            Primitive::RectangularPrallelPiped { min, max } => {
                 let center = (*min + *max) * 0.5;
                 let extents = (*max - *min) * 0.5;
                 let q = (*p - center).abs() - extents;
@@ -237,7 +237,7 @@ impl Shape {
                 let inside = q.max_element().min(0.0);
                 outside + inside
             }
-            Shape::FiniteCylinder {
+            Primitive::FiniteCylinder {
                 center,
                 direction,
                 radius2,
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_sphere_intersections() {
-        let sphere = Shape::Sphere {
+        let sphere = Primitive::Sphere {
             center: Vec3A::ZERO,
             radius2: 1.0,
         };
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_sphere_tangent() {
-        let sphere = Shape::Sphere {
+        let sphere = Primitive::Sphere {
             center: Vec3A::ZERO,
             radius2: 1.0,
         };
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_rect_intersections() {
-        let rect = Shape::RectangularPrallelPiped {
+        let rect = Primitive::RectangularPrallelPiped {
             min: Vec3A::new(-1.0, -1.0, -1.0),
             max: Vec3A::new(1.0, 1.0, 1.0),
         };
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_cylinder_intersections() {
-        let cylinder = Shape::FiniteCylinder {
+        let cylinder = Primitive::FiniteCylinder {
             center: Vec3A::ZERO,
             direction: Vec3A::Y,
             radius2: 1.0,
@@ -349,22 +349,22 @@ mod tests {
     }
 
     #[test]
-    fn test_shape_sdf() {
-        let sphere = Shape::Sphere {
+    fn test_primitive_sdf() {
+        let sphere = Primitive::Sphere {
             center: Vec3A::ZERO,
             radius2: 4.0,
         };
         assert!((sphere.sdf(&Vec3A::ZERO) + 2.0).abs() < EPSILON);
         assert!((sphere.sdf(&Vec3A::new(3.0, 0.0, 0.0)) - 1.0).abs() < EPSILON);
 
-        let rect = Shape::RectangularPrallelPiped {
+        let rect = Primitive::RectangularPrallelPiped {
             min: Vec3A::new(-1.0, -1.0, -1.0),
             max: Vec3A::new(1.0, 1.0, 1.0),
         };
         assert!(rect.sdf(&Vec3A::ZERO).is_sign_negative());
         assert!((rect.sdf(&Vec3A::new(2.0, 0.0, 0.0)) - 1.0).abs() < EPSILON);
 
-        let cylinder = Shape::FiniteCylinder {
+        let cylinder = Primitive::FiniteCylinder {
             center: Vec3A::ZERO,
             direction: Vec3A::Y,
             radius2: 1.0,

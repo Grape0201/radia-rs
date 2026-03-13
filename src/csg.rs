@@ -1,38 +1,43 @@
-use crate::shape::{Ray, Shape};
+use crate::primitive::{Primitive, Ray};
 use glam::Vec3A;
 
 pub enum CSGNode {
     Union(Box<CSGNode>, Box<CSGNode>),
     Intersection(Box<CSGNode>, Box<CSGNode>),
     Difference(Box<CSGNode>, Box<CSGNode>),
-    Primitive(usize), // shape_id
+    Primitive(usize), // primitive_id
 }
 
 impl CSGNode {
-    fn contains(&self, p: &Vec3A, shapes: &[Shape]) -> bool {
-        match self {
-            CSGNode::Union(left, right) => left.contains(p, shapes) || right.contains(p, shapes),
-            CSGNode::Intersection(left, right) => {
-                left.contains(p, shapes) && right.contains(p, shapes)
-            }
-            CSGNode::Difference(left, right) => {
-                left.contains(p, shapes) && !right.contains(p, shapes)
-            }
-            CSGNode::Primitive(id) => shapes[*id].contains(p),
-        }
-    }
-    fn check_primitive_indices(&self, shape_len: usize) -> bool {
+    fn contains(&self, p: &Vec3A, primitives: &[Primitive]) -> bool {
         match self {
             CSGNode::Union(left, right) => {
-                left.check_primitive_indices(shape_len) && right.check_primitive_indices(shape_len)
+                left.contains(p, primitives) || right.contains(p, primitives)
             }
             CSGNode::Intersection(left, right) => {
-                left.check_primitive_indices(shape_len) && right.check_primitive_indices(shape_len)
+                left.contains(p, primitives) && right.contains(p, primitives)
             }
             CSGNode::Difference(left, right) => {
-                left.check_primitive_indices(shape_len) && right.check_primitive_indices(shape_len)
+                left.contains(p, primitives) && !right.contains(p, primitives)
             }
-            CSGNode::Primitive(id) => *id < shape_len,
+            CSGNode::Primitive(id) => primitives[*id].contains(p),
+        }
+    }
+    fn check_primitive_indices(&self, primitive_len: usize) -> bool {
+        match self {
+            CSGNode::Union(left, right) => {
+                left.check_primitive_indices(primitive_len)
+                    && right.check_primitive_indices(primitive_len)
+            }
+            CSGNode::Intersection(left, right) => {
+                left.check_primitive_indices(primitive_len)
+                    && right.check_primitive_indices(primitive_len)
+            }
+            CSGNode::Difference(left, right) => {
+                left.check_primitive_indices(primitive_len)
+                    && right.check_primitive_indices(primitive_len)
+            }
+            CSGNode::Primitive(id) => *id < primitive_len,
         }
     }
 }
@@ -43,7 +48,7 @@ pub struct Cell {
 }
 
 pub struct World {
-    pub shapes: Vec<Shape>,
+    pub primitives: Vec<Primitive>,
     pub cells: Vec<Cell>,
 }
 
@@ -66,9 +71,9 @@ impl World {
         buffer.push(0.0);
         buffer.push(1.0);
 
-        // Collect intersections for all shapes
-        for shape in &self.shapes {
-            let ts = shape.get_intersections(ray);
+        // Collect intersections for all primitives
+        for primitive in &self.primitives {
+            let ts = primitive.get_intersections(ray);
             buffer.extend_from_slice(&ts.ts[0..ts.count]);
         }
 
@@ -104,7 +109,7 @@ impl World {
             let p_mid = ray.origin + ray.vector * t_mid;
 
             for cell in &self.cells {
-                if cell.csg.contains(&p_mid, &self.shapes) {
+                if cell.csg.contains(&p_mid, &self.primitives) {
                     let length = (t1 - t0) * dir_len;
                     segments.push((cell.material_id, length));
                     // Stop checking cells once we find the one containing this segment
@@ -116,9 +121,9 @@ impl World {
     }
 
     pub fn check_primitive_indices(&self) -> bool {
-        let shape_len = self.shapes.len();
+        let primitive_len = self.primitives.len();
         for cell in &self.cells {
-            if !cell.csg.check_primitive_indices(shape_len) {
+            if !cell.csg.check_primitive_indices(primitive_len) {
                 return false;
             }
         }

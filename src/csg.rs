@@ -59,41 +59,42 @@ impl World {
         &self,
         ray: &Ray,
         segments: &mut Vec<(u32, f32)>, // result buffer: (material_id, length)
-        buffer: &mut Vec<f32>,          // intersection points buffer
+        buf_ts: &mut Vec<f32>,          // intersection points buffer
+        buf_merged_ts: &mut Vec<f32>,   // merged intersection points buffer
     ) {
         segments.clear();
-        buffer.clear();
+        buf_ts.clear();
+        buf_merged_ts.clear();
         let dir_len = ray.vector.length();
         if dir_len <= EPSILON {
             return;
         }
 
-        buffer.push(0.0);
-        buffer.push(1.0);
+        buf_ts.push(0.0);
+        buf_ts.push(1.0);
 
         // Collect intersections for all primitives
         for primitive in &self.primitives {
             let ts = primitive.get_intersections(ray);
-            buffer.extend_from_slice(&ts.ts[0..ts.count]);
+            buf_ts.extend_from_slice(&ts.ts[0..ts.count]);
         }
 
-        buffer.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        buf_ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut merged_ts = Vec::new();
-        for t in buffer {
-            if merged_ts.is_empty() {
-                merged_ts.push(t);
+        for t in buf_ts {
+            if buf_merged_ts.is_empty() {
+                buf_merged_ts.push(*t);
             } else {
-                let last = merged_ts.last().unwrap();
-                if *t - **last > EPSILON {
-                    merged_ts.push(t);
+                let last = buf_merged_ts.last().unwrap();
+                if *t - *last > EPSILON {
+                    buf_merged_ts.push(*t);
                 }
             }
         }
 
-        for i in 0..merged_ts.len().saturating_sub(1) {
-            let t0 = &merged_ts[i];
-            let t1 = *merged_ts[i + 1];
+        for i in 0..buf_merged_ts.len().saturating_sub(1) {
+            let t0 = &buf_merged_ts[i];
+            let t1 = buf_merged_ts[i + 1];
 
             // Only care about points in front of the ray origin
             if t1 <= 0.0 {

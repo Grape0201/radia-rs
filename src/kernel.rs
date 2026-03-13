@@ -33,7 +33,8 @@ where
     let mut total_dose = 0.0;
     let num_groups = conversion_factors.len();
     let mut segments_buffer = Vec::with_capacity(32); // pre-allocate for performance
-    let mut ts_buffer = Vec::with_capacity(64); // pre-allocate for performance
+    let mut buffer_ts = Vec::with_capacity(64); // pre-allocate for performance
+    let mut buffer_merged_ts = Vec::with_capacity(64); // pre-allocate for performance
 
     // Loop over source division
     for source in sources {
@@ -51,7 +52,12 @@ where
         };
 
         // Get material segments once for this source (Optimized step for speed)
-        world.get_ray_segments(&ray, &mut segments_buffer, &mut ts_buffer);
+        world.get_ray_segments(
+            &ray,
+            &mut segments_buffer,
+            &mut buffer_ts,
+            &mut buffer_merged_ts,
+        );
 
         let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
 

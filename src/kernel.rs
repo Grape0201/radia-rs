@@ -32,6 +32,8 @@ where
 {
     let mut total_dose = 0.0;
     let num_groups = conversion_factors.len();
+    let mut segments_buffer = Vec::with_capacity(32); // pre-allocate for performance
+    let mut ts_buffer = Vec::with_capacity(64); // pre-allocate for performance
 
     // Loop over source division
     for source in sources {
@@ -49,7 +51,7 @@ where
         };
 
         // Get material segments once for this source (Optimized step for speed)
-        let segments = world.get_ray_segments(&ray);
+        world.get_ray_segments(&ray, &mut segments_buffer, &mut ts_buffer);
 
         let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
 
@@ -59,7 +61,7 @@ where
         for i in 0..num_groups {
             let mut optical_thickness = 0.0;
             // Sum mu * x over all traversed cells
-            for &(mat_id, length) in &segments {
+            for &(mat_id, length) in &segments_buffer {
                 optical_thickness += get_mu(mat_id as usize, i) * length;
             }
 

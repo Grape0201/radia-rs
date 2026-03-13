@@ -1,6 +1,5 @@
 use crate::shape::{Ray, Shape};
 use glam::Vec3A;
-use std::collections::HashMap;
 
 pub enum CSGNode {
     Union(Box<CSGNode>, Box<CSGNode>),
@@ -10,7 +9,7 @@ pub enum CSGNode {
 }
 
 impl CSGNode {
-    fn contains(&self, p: &Vec3A, shapes: &HashMap<usize, Shape>) -> bool {
+    fn contains(&self, p: &Vec3A, shapes: &[Shape]) -> bool {
         match self {
             CSGNode::Union(left, right) => left.contains(p, shapes) || right.contains(p, shapes),
             CSGNode::Intersection(left, right) => {
@@ -19,7 +18,21 @@ impl CSGNode {
             CSGNode::Difference(left, right) => {
                 left.contains(p, shapes) && !right.contains(p, shapes)
             }
-            CSGNode::Primitive(id) => shapes.get(id).is_some_and(|s| s.contains(p)),
+            CSGNode::Primitive(id) => shapes[*id].contains(p),
+        }
+    }
+    fn check_primitive_indices(&self, shape_len: usize) -> bool {
+        match self {
+            CSGNode::Union(left, right) => {
+                left.check_primitive_indices(shape_len) && right.check_primitive_indices(shape_len)
+            }
+            CSGNode::Intersection(left, right) => {
+                left.check_primitive_indices(shape_len) && right.check_primitive_indices(shape_len)
+            }
+            CSGNode::Difference(left, right) => {
+                left.check_primitive_indices(shape_len) && right.check_primitive_indices(shape_len)
+            }
+            CSGNode::Primitive(id) => *id < shape_len,
         }
     }
 }
@@ -30,7 +43,7 @@ pub struct Cell {
 }
 
 pub struct World {
-    pub shapes: HashMap<usize, Shape>,
+    pub shapes: Vec<Shape>,
     pub cells: Vec<Cell>,
 }
 
@@ -54,7 +67,7 @@ impl World {
         buffer.push(1.0);
 
         // Collect intersections for all shapes
-        for shape in self.shapes.values() {
+        for shape in &self.shapes {
             let ts = shape.get_intersections(ray);
             buffer.extend_from_slice(&ts.ts[0..ts.count]);
         }
@@ -100,5 +113,15 @@ impl World {
                 }
             }
         }
+    }
+
+    pub fn check_primitive_indices(&self) -> bool {
+        let shape_len = self.shapes.len();
+        for cell in &self.cells {
+            if !cell.csg.check_primitive_indices(shape_len) {
+                return false;
+            }
+        }
+        true
     }
 }

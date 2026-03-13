@@ -109,12 +109,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_unshielded_point_source_spectrum() {
         let world = World {
-            shapes: HashMap::new(),
+            shapes: vec![],
             cells: vec![],
         };
 

@@ -82,7 +82,7 @@ fn generate_test_environment() -> (
 
     // 3. Setup Geometry (Nested Spheres: Inner Iron core, Outer Water shell)
     let mut world = World {
-        shapes: HashMap::new(),
+        shapes: vec![],
         cells: vec![],
     };
 
@@ -95,8 +95,8 @@ fn generate_test_environment() -> (
         radius2: 50.0 * 50.0,
     };
 
-    world.shapes.insert(0, inner_sphere);
-    world.shapes.insert(1, outer_sphere);
+    world.shapes.push(inner_sphere);
+    world.shapes.push(outer_sphere);
 
     // Cell 0: Iron core (material index 1)
     world.cells.push(Cell {
@@ -115,6 +115,7 @@ fn generate_test_environment() -> (
             )),
         ),
     });
+    assert!(world.check_primitive_indices());
 
     // 4. Setup Sources (e.g. 1000 points arranged in a grid inside the core)
     let sources = generate_sphere_source(Vec3A::ZERO, 9.0, 10, 10, 10, 1.0);
@@ -183,6 +184,7 @@ fn benchmark_parallel(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = config_with_profiler();
+    // config = Criterion::default();
     targets = benchmark_single, benchmark_parallel
 );
 criterion_main!(benches);

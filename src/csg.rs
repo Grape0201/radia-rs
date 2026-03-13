@@ -96,16 +96,6 @@ impl World {
             let t0 = &buf_merged_ts[i];
             let t1 = buf_merged_ts[i + 1];
 
-            // Only care about points in front of the ray origin
-            if t1 <= 0.0 {
-                continue;
-            }
-            let t0 = t0.max(0.0);
-
-            if t1 - t0 <= EPSILON {
-                continue;
-            }
-
             let t_mid = (t0 + t1) * 0.5;
             let p_mid = ray.origin + ray.vector * t_mid;
 

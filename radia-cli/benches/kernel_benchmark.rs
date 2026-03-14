@@ -1,12 +1,12 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
-use radia_rs::buildup::{GPBuildupProvider, TargetQuantity};
-use radia_rs::csg::{CSGNode, Cell, World};
-use radia_rs::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
-use radia_rs::material::{DummyProvider, MaterialDef, MuTable};
-use radia_rs::primitive::Primitive;
-use radia_rs::source::{PointSource, generate_sphere_source};
+use radia_cli::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
+use radia_core::buildup::{GPBuildupProvider, TargetQuantity};
+use radia_core::csg::{CSGNode, Cell, World};
+use radia_core::material::{DummyProvider, MaterialDef, MuTable};
+use radia_core::primitive::Primitive;
+use radia_core::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
 use std::hint::black_box;
 
@@ -17,7 +17,7 @@ fn config_with_profiler() -> Criterion {
 fn generate_test_environment() -> (
     World,
     MuTable,
-    radia_rs::buildup::BuildupTable,
+    radia_core::buildup::BuildupTable,
     Vec<PointSource>,
     Vec<f32>,
 ) {
@@ -41,7 +41,7 @@ fn generate_test_environment() -> (
     // 2. Setup Buildup
     let mut gp_provider = GPBuildupProvider::new();
     let dummy_params = vec![
-        radia_rs::buildup::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 0.5,
             a: 0.1,
             b: 2.0,
@@ -49,7 +49,7 @@ fn generate_test_environment() -> (
             d: 0.05,
             xk: 14.0,
         },
-        radia_rs::buildup::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 1.0,
             a: 0.12,
             b: 2.1,
@@ -57,7 +57,7 @@ fn generate_test_environment() -> (
             d: 0.04,
             xk: 14.4,
         },
-        radia_rs::buildup::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 10.0,
             a: 0.2,
             b: 1.3,

@@ -1,9 +1,9 @@
 use glam::Vec3A;
 use rayon::prelude::*;
 
-use crate::csg::World;
-use crate::primitive::Ray;
-use crate::source::PointSource;
+use radia_core::csg::World;
+use radia_core::primitive::Ray;
+use radia_core::source::PointSource;
 
 /// Calculate the total integrated dose rate from multiple point sources over an energy spectrum.
 /// This loops over both energy divisions and source divisions, and is optimized by extracting

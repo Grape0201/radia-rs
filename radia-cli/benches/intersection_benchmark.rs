@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
-use radia_rs::primitive::{Ray, Primitive};
+use radia_core::primitive::{Primitive, Ray};
 
 fn benchmark_intersection(c: &mut Criterion) {
     let mut group = c.benchmark_group("Intersection");

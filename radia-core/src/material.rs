@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_nist_json_provider() {
-        let provider = JsonMassAttenuationProvider::from_file("data/elements.json").unwrap();
+        let provider = JsonMassAttenuationProvider::from_file("../data/elements.json").unwrap();
 
         // Hydrogen (Z=1) at 1.0 MeV
         // NIST value: 1.263E-01 cm2/g
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_material_registry() {
-        let registry = MaterialRegistry::from_file("data/compositions.json").unwrap();
+        let registry = MaterialRegistry::from_file("../data/compositions.json").unwrap();
         let (water, density) = registry.get_material("Water, Liquid").unwrap();
 
         assert!((density - 1.0).abs() < 1e-3);
@@ -357,7 +357,7 @@ mod tests {
         assert!(water.partial_densities.contains_key(&8));
 
         // Calculate mu for Water at 1.0 MeV
-        let provider = JsonMassAttenuationProvider::from_file("data/elements.json").unwrap();
+        let provider = JsonMassAttenuationProvider::from_file("../data/elements.json").unwrap();
         let mu_table = MuTable::generate(&[water], &[1.0], &provider).unwrap();
 
         // NIST mu/rho for Water at 1.0 MeV: 7.072E-02 cm2/g

@@ -88,7 +88,8 @@ impl World {
             buf_ts.extend_from_slice(&ts.ts[0..ts.count]);
         }
 
-        buf_ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        // Assume ts are not NaN
+        buf_ts.sort_unstable_by(|a, b| a.total_cmp(b));
 
         for t in buf_ts {
             if buf_merged_ts.is_empty() {

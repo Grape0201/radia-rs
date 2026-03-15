@@ -1,3 +1,4 @@
+use crate::constants::EPSILON;
 use glam::Vec3A;
 
 /// Only convex primitives are supported.
@@ -54,7 +55,6 @@ pub struct Ray {
     pub vector: Vec3A,
 }
 
-const EPSILON: f32 = 1e-6;
 const SEGMENT_MIN: f32 = EPSILON;
 const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 

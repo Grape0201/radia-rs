@@ -1,3 +1,4 @@
+use crate::constants::{EPSILON, T_EPSILON};
 use crate::primitive::{Primitive, Ray};
 use glam::Vec3A;
 
@@ -61,8 +62,6 @@ pub struct World {
     pub cells: Vec<Cell>,
 }
 
-const EPSILON: f32 = 1e-6;
-
 impl World {
     pub fn get_ray_segments(
         &self,
@@ -96,7 +95,7 @@ impl World {
                 buf_merged_ts.push(*t);
             } else {
                 let last = buf_merged_ts.last().unwrap();
-                if *t - *last > EPSILON {
+                if *t - *last > T_EPSILON {
                     buf_merged_ts.push(*t);
                 }
             }

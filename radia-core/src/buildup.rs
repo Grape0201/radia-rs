@@ -1,3 +1,5 @@
+use crate::constants::{E_EPSILON, O_EPSILON, T_EPSILON};
+
 /// Error type for buildup factor calculations and data management
 #[derive(thiserror::Error, Debug)]
 pub enum BuildupError {
@@ -68,12 +70,12 @@ impl BuildupModel {
             BuildupModel::GeometricProgression { a, b, c, d, xk } => {
                 let x = optical_thickness;
                 // Prevent division by zero when optical thickness x is near 0
-                if x <= 1e-6 {
+                if x <= O_EPSILON {
                     return 1.0;
                 }
 
                 // Calculate K(x) for the G-P formula
-                let k_x = if (*xk - 1.0).abs() < 1e-4 {
+                let k_x = if (*xk - 1.0).abs() < T_EPSILON {
                     // Approximation when K is close to constant 1
                     // Generally calculated using parameters at x=1
                     *c * x.powf(*a) + *d * x.exp() + *b
@@ -83,7 +85,7 @@ impl BuildupModel {
                 };
 
                 // Actual buildup factor B(x)
-                if (k_x - 1.0).abs() < 1e-6 {
+                if (k_x - 1.0).abs() < T_EPSILON {
                     1.0 + (*b - 1.0) * x
                 } else {
                     1.0 + (*b - 1.0) * (k_x.powf(x) - 1.0) / (k_x - 1.0)
@@ -266,7 +268,7 @@ impl GPBuildupProvider {
         }
 
         // Exact match for boundaries (or very close)
-        if (target_energy - min_e).abs() < 1e-9 {
+        if (target_energy - min_e).abs() < E_EPSILON {
             let p = params_list.first().unwrap();
             return Ok(BuildupModel::GeometricProgression {
                 a: p.a,
@@ -276,7 +278,7 @@ impl GPBuildupProvider {
                 xk: p.xk,
             });
         }
-        if (target_energy - max_e).abs() < 1e-9 {
+        if (target_energy - max_e).abs() < E_EPSILON {
             let p = params_list.last().unwrap();
             return Ok(BuildupModel::GeometricProgression {
                 a: p.a,

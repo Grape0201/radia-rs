@@ -4,13 +4,13 @@ use radia_core::csg::World;
 use radia_core::primitive::Primitive;
 use wasm_bindgen::prelude::*;
 
-/// Cellごとの点群データ
-/// JS側には { cell_index, material_id, positions: Float32Array } の配列として渡す
+/// Point cloud for each cell
+/// Passed to the JS side as an array of objects: { cell_index, material_id, positions: Float32Array }
 #[wasm_bindgen]
 pub struct PointCloudResult {
-    // wasm_bindgenはVec<struct>を直接渡せないのでフラット配列で渡す
+    // wasm_bindgen cannot pass Vec<struct> directly, so it is passed as a flat array
     // layout: [cell_index(f32), material_id(f32), x, y, z, x, y, z, ...]
-    // cell_indexが変わるたびにセル境界
+    // Cell boundary whenever cell_index changes
 }
 
 #[derive(serde::Serialize)]
@@ -101,7 +101,7 @@ fn generate_surface_points(world: &World, resolution: f32) -> PointCloudOutput {
     }
 }
 
-/// プリミティブからAABBを計算
+/// Calculate AABB from primitives
 fn world_aabb(world: &World) -> ([f32; 3], [f32; 3]) {
     let mut mn = [f32::INFINITY; 3];
     let mut mx = [f32::NEG_INFINITY; 3];
@@ -136,7 +136,7 @@ fn world_aabb(world: &World) -> ([f32; 3], [f32; 3]) {
         }
     }
 
-    // フォールバック
+    // Fallback
     if !mn[0].is_finite() {
         return ([-2.0; 3], [2.0; 3]);
     }

@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 radia-core = { path = "../radia-core" }
-glam = "0.32.1"
+glam.workspace = true
 rayon = "1.11.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "2.0"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [[bench]]
 name = "kernel_benchmark"

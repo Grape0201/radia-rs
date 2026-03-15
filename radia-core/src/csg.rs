@@ -51,6 +51,18 @@ impl CSGNode {
             }
         }
     }
+    pub fn sdf(&self, p: &Vec3A, primitives: &[Primitive]) -> f32 {
+        match self {
+            CSGNode::Union(left, right) => left.sdf(p, primitives).min(right.sdf(p, primitives)),
+            CSGNode::Intersection(left, right) => {
+                left.sdf(p, primitives).max(right.sdf(p, primitives))
+            }
+            CSGNode::Difference(left, right) => {
+                left.sdf(p, primitives).max(-right.sdf(p, primitives))
+            }
+            CSGNode::Primitive(id) => primitives[*id].sdf(p),
+        }
+    }
 }
 
 pub struct Cell {

@@ -1,0 +1,16 @@
+[package]
+name = "radia-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+radia-core = { path = "../radia-core" }
+wasm-bindgen = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+glam.workspace = true
+console_error_panic_hook = "0.1"
+serde-wasm-bindgen = "0.6"

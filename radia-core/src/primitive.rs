@@ -9,7 +9,7 @@ pub enum Primitive {
         /// radius^2
         radius2: f32,
     },
-    RectangularPrallelPiped {
+    RectangularParallelPiped {
         min: Vec3A,
         max: Vec3A,
     },
@@ -29,9 +29,9 @@ impl std::fmt::Display for Primitive {
             Primitive::Sphere { center, radius2 } => {
                 write!(f, "Sphere {{ center: {:?}, radius2: {} }}", center, radius2)
             }
-            Primitive::RectangularPrallelPiped { min, max } => write!(
+            Primitive::RectangularParallelPiped { min, max } => write!(
                 f,
-                "RectangularPrallelPiped {{ min: {:?}, max: {:?} }}",
+                "RectangularParallelPiped {{ min: {:?}, max: {:?} }}",
                 min, max
             ),
             Primitive::FiniteCylinder {
@@ -111,7 +111,7 @@ impl Primitive {
                 }
                 hits
             }
-            Primitive::RectangularPrallelPiped { min, max } => {
+            Primitive::RectangularParallelPiped { min, max } => {
                 let inv_dir = 1.0 / ray.vector;
                 let t0 = (*min - ray.origin) * inv_dir;
                 let t1 = (*max - ray.origin) * inv_dir;
@@ -199,7 +199,7 @@ impl Primitive {
                 let dist_sq = (*p - *center).length_squared();
                 dist_sq <= *radius2 + EPSILON
             }
-            Primitive::RectangularPrallelPiped { min, max } => {
+            Primitive::RectangularParallelPiped { min, max } => {
                 p.cmpge(*min - EPSILON).all() && p.cmple(*max + EPSILON).all()
             }
             Primitive::FiniteCylinder {
@@ -229,7 +229,7 @@ impl Primitive {
                 let radius = radius2.sqrt();
                 (*p - *center).length() - radius
             }
-            Primitive::RectangularPrallelPiped { min, max } => {
+            Primitive::RectangularParallelPiped { min, max } => {
                 let center = (*min + *max) * 0.5;
                 let extents = (*max - *min) * 0.5;
                 let q = (*p - center).abs() - extents;
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_rect_intersections() {
-        let rect = Primitive::RectangularPrallelPiped {
+        let rect = Primitive::RectangularParallelPiped {
             min: Vec3A::new(-1.0, -1.0, -1.0),
             max: Vec3A::new(1.0, 1.0, 1.0),
         };
@@ -357,7 +357,7 @@ mod tests {
         assert!((sphere.sdf(&Vec3A::ZERO) + 2.0).abs() < EPSILON);
         assert!((sphere.sdf(&Vec3A::new(3.0, 0.0, 0.0)) - 1.0).abs() < EPSILON);
 
-        let rect = Primitive::RectangularPrallelPiped {
+        let rect = Primitive::RectangularParallelPiped {
             min: Vec3A::new(-1.0, -1.0, -1.0),
             max: Vec3A::new(1.0, 1.0, 1.0),
         };

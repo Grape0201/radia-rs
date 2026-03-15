@@ -23,6 +23,7 @@ pub enum WorldConfigError {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorldConfig {
     pub primitives: Vec<PrimitiveConfig>,
+    pub materials: Vec<String>,
     pub cells: Vec<CellConfig>,
 }
 
@@ -34,7 +35,7 @@ pub enum PrimitiveConfig {
         center: [f32; 3],
         radius: f32,
     },
-    RectangularPrallelPiped {
+    RectangularParallelPiped {
         name: String,
         min: [f32; 3],
         max: [f32; 3],
@@ -51,7 +52,7 @@ impl PrimitiveConfig {
     pub fn name(&self) -> &str {
         match self {
             Self::Sphere { name, .. } => name,
-            Self::RectangularPrallelPiped { name, .. } => name,
+            Self::RectangularParallelPiped { name, .. } => name,
             Self::FiniteCylinder { name, .. } => name,
         }
     }
@@ -71,11 +72,18 @@ pub enum CSGConfig {
 }
 
 impl WorldConfig {
-    pub fn build(self, material_map: &HashMap<String, u32>) -> Result<World, WorldConfigError> {
+    pub fn build(self) -> Result<World, WorldConfigError> {
         let mut used_primitive_names = std::collections::HashSet::new();
         for c_conf in &self.cells {
             collect_used_primitives(&c_conf.csg, &mut used_primitive_names);
         }
+
+        let material_map: HashMap<String, u32> = self
+            .materials
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.clone(), i as u32))
+            .collect();
 
         let mut primitive_map = HashMap::new();
         let mut primitives = Vec::new();
@@ -103,7 +111,7 @@ impl WorldConfig {
                         radius2: radius * radius,
                     }
                 }
-                PrimitiveConfig::RectangularPrallelPiped { min, max, .. } => {
+                PrimitiveConfig::RectangularParallelPiped { min, max, .. } => {
                     if min[0] > max[0] || min[1] > max[1] || min[2] > max[2] {
                         return Err(WorldConfigError::InvalidPrimitive {
                             name: name.to_string(),
@@ -113,7 +121,7 @@ impl WorldConfig {
                             ),
                         });
                     }
-                    Primitive::RectangularPrallelPiped {
+                    Primitive::RectangularParallelPiped {
                         min: Vec3A::from_array(min),
                         max: Vec3A::from_array(max),
                     }
@@ -238,8 +246,9 @@ mod tests {
             "primitives": [
                 {"name": "unused", "type": "Sphere", "center": [1.0, 1.0, 1.0], "radius": 1.0},
                 {"name": "source", "type": "Sphere", "center": [0.0, 0.0, 0.0], "radius": 2.0},
-                {"name": "whole_world", "type": "RectangularPrallelPiped", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}
+                {"name": "whole_world", "type": "RectangularParallelPiped", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}
             ],
+            "materials": ["Water", "Air"],
             "cells": [
                 {"material_name": "Water", "csg": {"op": "inner", "prs": ["source"]}},
                 {"material_name": "Air", "csg": {"op": "difference", "prs": ["whole_world", "source"]}}
@@ -248,16 +257,15 @@ mod tests {
 
         let config: WorldConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.primitives.len(), 3);
+        assert_eq!(config.materials.len(), 2);
         assert_eq!(config.cells.len(), 2);
 
-        let mut material_map = HashMap::new();
-        material_map.insert("Water".to_string(), 0);
-        material_map.insert("Air".to_string(), 1);
-
-        let world = config.build(&material_map).unwrap();
+        let world = config.build().unwrap();
         assert_eq!(world.primitives.len(), 2);
         assert_eq!(world.cells.len(), 2);
         assert_eq!(world.cells[0].csg, CSGNode::Primitive(0));
+        assert_eq!(world.cells[0].material_id, 0); // Water
+        assert_eq!(world.cells[1].material_id, 1); // Air
         assert_eq!(
             world.cells[1].csg,
             CSGNode::Difference(

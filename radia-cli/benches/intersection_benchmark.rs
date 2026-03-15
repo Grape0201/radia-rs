@@ -10,7 +10,7 @@ fn benchmark_intersection(c: &mut Criterion) {
             center: Vec3A::ZERO,
             radius2: 1.0,
         },
-        Primitive::RectangularPrallelPiped {
+        Primitive::RectangularParallelPiped {
             min: Vec3A::new(-1.0, -1.0, -1.0),
             max: Vec3A::new(1.0, 1.0, 1.0),
         },

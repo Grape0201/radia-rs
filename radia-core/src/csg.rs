@@ -2,6 +2,7 @@ use crate::constants::{EPSILON, T_EPSILON};
 use crate::primitive::{Primitive, Ray};
 use glam::Vec3A;
 
+#[derive(PartialEq, Debug)]
 pub enum CSGNode {
     Union(Box<CSGNode>, Box<CSGNode>),
     Intersection(Box<CSGNode>, Box<CSGNode>),

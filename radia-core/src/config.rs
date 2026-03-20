@@ -30,16 +30,19 @@ pub struct WorldConfig {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum PrimitiveConfig {
+    #[serde(alias = "SPH")]
     Sphere {
         name: String,
         center: [f32; 3],
         radius: f32,
     },
+    #[serde(alias = "RPP", alias = "Aabb", alias = "AABB")]
     RectangularParallelPiped {
         name: String,
         min: [f32; 3],
         max: [f32; 3],
     },
+    #[serde(alias = "CYL")]
     FiniteCylinder {
         name: String,
         center: [f32; 3],
@@ -273,5 +276,46 @@ mod tests {
                 Box::new(CSGNode::Primitive(0)),
             )
         );
+    }
+
+    #[test]
+    fn test_deserialize_primitive_aliases() {
+        let json = r#"{
+            "primitives": [
+                {"name": "s", "type": "SPH", "center": [0.0, 0.0, 0.0], "radius": 1.0},
+                {"name": "r1", "type": "RPP", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
+                {"name": "r2", "type": "Aabb", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
+                {"name": "r3", "type": "AABB", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
+                {"name": "c", "type": "CYL", "center": [0.0, 0.0, 0.0], "vector": [0.0, 0.0, 1.0], "radius": 0.5}
+            ],
+            "materials": ["Water"],
+            "cells": [
+                {"material_name": "Water", "csg": "s"}
+            ]
+        }"#;
+
+        let config: WorldConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.primitives.len(), 5);
+        
+        match &config.primitives[0] {
+            PrimitiveConfig::Sphere { name, .. } => assert_eq!(name, "s"),
+            _ => panic!("Expected Sphere"),
+        }
+        match &config.primitives[1] {
+            PrimitiveConfig::RectangularParallelPiped { name, .. } => assert_eq!(name, "r1"),
+            _ => panic!("Expected RectangularParallelPiped"),
+        }
+        match &config.primitives[2] {
+            PrimitiveConfig::RectangularParallelPiped { name, .. } => assert_eq!(name, "r2"),
+            _ => panic!("Expected RectangularParallelPiped"),
+        }
+        match &config.primitives[3] {
+            PrimitiveConfig::RectangularParallelPiped { name, .. } => assert_eq!(name, "r3"),
+            _ => panic!("Expected RectangularParallelPiped"),
+        }
+        match &config.primitives[4] {
+            PrimitiveConfig::FiniteCylinder { name, .. } => assert_eq!(name, "c"),
+            _ => panic!("Expected FiniteCylinder"),
+        }
     }
 }

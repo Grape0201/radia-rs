@@ -182,11 +182,11 @@ impl MaterialRegistry {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MaterialDef {
     /// Density (g/cm^3) of the material.
-    pub density: f32,
+    pub(crate) density: f32,
     /// Element weight fractions of the material, mapped by its atomic number.
-    pub composition: HashMap<AtomicNumber, f32>,
+    pub(crate) composition: HashMap<AtomicNumber, f32>,
     /// Optional name of the material to use for buildup factor data.
-    pub buildup_source: Option<String>,
+    pub(crate) buildup_source: Option<String>,
 }
 
 impl MaterialDef {

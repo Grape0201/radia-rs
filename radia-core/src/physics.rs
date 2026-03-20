@@ -52,7 +52,8 @@ pub enum MaterialPhysicsError {
 
 /// Model representing the buildup factor and its required parameters
 #[derive(Clone, Copy, Debug)]
-pub enum BuildupModel {
+#[allow(dead_code)]
+pub(crate) enum BuildupModel {
     /// Ignores scattering, or useful for testing with a fixed value (usually 1.0)
     Constant(f32),
 
@@ -76,7 +77,7 @@ pub enum BuildupModel {
 impl BuildupModel {
     /// Calculates the buildup factor given the actual optical thickness (mu * r)
     #[inline(always)]
-    pub fn calculate(&self, optical_thickness: f32) -> f32 {
+    pub(crate) fn calculate(&self, optical_thickness: f32) -> f32 {
         match self {
             BuildupModel::Constant(val) => *val,
             BuildupModel::Taylor { a, alpha1, alpha2 } => {

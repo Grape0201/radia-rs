@@ -37,6 +37,19 @@ pub enum BuildupError {
     Other(String),
 }
 
+/// Error type for MaterialPhysicsTable operations
+#[derive(thiserror::Error, Debug)]
+pub enum MaterialPhysicsError {
+    #[error("Material '{0}' not found in registry")]
+    MaterialDataNotInRegistry(String),
+
+    #[error(transparent)]
+    Material(#[from] crate::material::MaterialError),
+
+    #[error(transparent)]
+    Buildup(#[from] BuildupError),
+}
+
 /// Model representing the buildup factor and its required parameters
 #[derive(Clone, Copy, Debug)]
 pub enum BuildupModel {
@@ -124,7 +137,7 @@ impl MaterialPhysicsTable {
         mu_provider: &impl MassAttenuationProvider,
         buildup_provider: &GPBuildupProvider,
         quantity: TargetQuantity,
-    ) -> Result<Self, crate::material::MaterialError> {
+    ) -> Result<Self, MaterialPhysicsError> {
         let num_materials = material_names.len();
         let num_groups = energy_groups.len();
 
@@ -132,12 +145,9 @@ impl MaterialPhysicsTable {
         let mut buildup_models = Vec::with_capacity(num_materials * num_groups);
 
         for name in material_names {
-            let mat = registry.get_material(name).ok_or_else(|| {
-                crate::material::MaterialError::Other(format!(
-                    "Material '{}' not found in registry",
-                    name
-                ))
-            })?;
+            let mat = registry
+                .get_material(name)
+                .ok_or_else(|| MaterialPhysicsError::MaterialDataNotInRegistry(name.clone()))?;
 
             // 1. Calculate macroscopic cross sections (mu)
             for &energy in energy_groups {
@@ -154,8 +164,7 @@ impl MaterialPhysicsTable {
 
             for &energy in energy_groups {
                 let model = buildup_provider
-                    .interpolate(buildup_source, quantity, energy)
-                    .map_err(|e| crate::material::MaterialError::Other(e.to_string()))?;
+                    .interpolate(buildup_source, quantity, energy)?;
                 buildup_models.push(model);
             }
         }

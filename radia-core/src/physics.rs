@@ -1,5 +1,5 @@
 use crate::constants::{E_EPSILON, O_EPSILON, T_EPSILON};
-use crate::material::{GroupIndex, MassAttenuationProvider, MaterialDef, MaterialIndex};
+use crate::material::{GroupIndex, MassAttenuationProvider, MaterialIndex, MaterialRegistry};
 
 /// Error type for buildup factor calculations and data management
 #[derive(thiserror::Error, Debug)]
@@ -118,36 +118,39 @@ impl MaterialPhysicsTable {
     /// Generates a physics table by pre-calculating linear attenuation coefficients
     /// and buildup models for the given materials and energy groups.
     pub fn generate(
-        materials: &[MaterialDef],
+        material_names: &[String],
+        registry: &MaterialRegistry,
         energy_groups: &[f32],
         mu_provider: &impl MassAttenuationProvider,
         buildup_provider: &GPBuildupProvider,
         quantity: TargetQuantity,
     ) -> Result<Self, crate::material::MaterialError> {
-        let num_materials = materials.len();
+        let num_materials = material_names.len();
         let num_groups = energy_groups.len();
 
         let mut mu_data = Vec::with_capacity(num_materials * num_groups);
         let mut buildup_models = Vec::with_capacity(num_materials * num_groups);
 
-        for mat in materials {
+        for name in material_names {
+            let mat = registry.get_material(name).ok_or_else(|| {
+                crate::material::MaterialError::Other(format!(
+                    "Material '{}' not found in registry",
+                    name
+                ))
+            })?;
+
             // 1. Calculate macroscopic cross sections (mu)
             for &energy in energy_groups {
                 let mut mu = 0.0;
-                for (&z, &density) in &mat.partial_densities {
+                for (&z, &fraction) in &mat.composition {
                     let mass_att = mu_provider.get_mass_attenuation(z, energy)?;
-                    mu += mass_att * density;
+                    mu += mass_att * fraction * mat.density;
                 }
                 mu_data.push(mu);
             }
 
             // 2. Interpolate buildup models
-            let buildup_source = mat.buildup_source.as_deref().ok_or_else(|| {
-                crate::material::MaterialError::Other(format!(
-                    "Material '{}' missing buildup source",
-                    mat.name.as_deref().unwrap_or("Unknown")
-                ))
-            })?;
+            let buildup_source = mat.buildup_source.as_deref().unwrap_or(name);
 
             for &energy in energy_groups {
                 let model = buildup_provider
@@ -373,6 +376,7 @@ impl GPBuildupProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::material::MaterialDef;
 
     #[test]
     fn test_buildup_constant() {
@@ -382,9 +386,9 @@ mod tests {
 
     #[test]
     fn test_physics_table_closures() {
-        let mut densities = std::collections::HashMap::new();
-        densities.insert(1, 1.0);
-        let _mat = MaterialDef::new(densities, Some("Dummy".into()), None);
+        let mut composition = std::collections::HashMap::new();
+        composition.insert(1, 1.0);
+        let _mat = MaterialDef::new(composition, 1.0, Some("Dummy".into()));
 
         let _provider = GPBuildupProvider::new(); // empty, but we'll use Constant for this test
         // Actually, let's just manually construct the table for this logic test
@@ -472,18 +476,18 @@ mod tests {
         let err_high = provider.interpolate("DummyMaterial", TargetQuantity::Exposure, 20.0);
         assert!(matches!(err_high, Err(BuildupError::EnergyTooHigh { .. })));
 
-        // Test Table Generation
-        let mut mat_densities = std::collections::HashMap::new();
-        mat_densities.insert(26, 7.87); // Iron
-        let mat = crate::material::MaterialDef::new(
-            mat_densities,
-            Some("DummyMaterial".into()),
-            Some("Iron".into()),
-        );
-        
+        let mut registry = MaterialRegistry::new();
+        let mut dummy_composition = std::collections::HashMap::new();
+        dummy_composition.insert(1, 1.0);
+        let dummy_mat = MaterialDef::new(dummy_composition, 1.0, None);
+        registry.insert("DummyMaterial".to_string(), dummy_mat);
+
+        let mat_name = "DummyMaterial".to_string();
+
         let mu_provider = crate::material::DummyProvider;
         let table = MaterialPhysicsTable::generate(
-            &[mat], 
+            &[mat_name], 
+            &registry,
             &[1.0, 2.0], 
             &mu_provider, 
             &provider, 
@@ -491,9 +495,9 @@ mod tests {
         ).unwrap();
 
         // Check mu
-        // Iron (Z=26) density 7.87. DummyProvider gives 0.01 for Z=26.
-        // mu = 0.01 * 7.87 = 0.0787
-        assert!((table.get_mu(0, 0) - 0.0787).abs() < 1e-6);
+        // DummyMaterial (Z=1) density 1.0. DummyProvider gives 0.05 for Z=1.
+        // mu = 0.05 * 1.0 = 0.05
+        assert!((table.get_mu(0, 0) - 0.05).abs() < 1e-6);
 
         // Check buildup: DummyMaterial (material 0), 2.0 MeV (energy index 1)
         let b = table.get_buildup(0, 1, 5.0); // B(x) at x=5.0

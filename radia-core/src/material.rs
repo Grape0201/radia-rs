@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -141,44 +141,35 @@ impl MassAttenuationProvider for JsonMassAttenuationProvider {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct CompositionData {
-    density: f32,
-    composition: HashMap<AtomicNumber, f32>,
-    buildup_source: Option<String>,
-}
-
 /// Registry for standard material compositions.
 pub struct MaterialRegistry {
-    compositions: HashMap<String, CompositionData>,
+    compositions: HashMap<String, MaterialDef>,
 }
 
 impl MaterialRegistry {
+    /// Creates a new empty material registry.
+    pub fn new() -> Self {
+        Self {
+            compositions: HashMap::new(),
+        }
+    }
+
     /// Loads common compositions from a JSON file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, MaterialError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let compositions: HashMap<String, CompositionData> = serde_json::from_reader(reader)?;
+        let compositions: HashMap<String, MaterialDef> = serde_json::from_reader(reader)?;
         Ok(Self { compositions })
     }
 
-    /// Returns a MaterialDef and density for a given material name.
-    pub fn get_material(&self, name: &str) -> Option<(MaterialDef, f32)> {
-        self.compositions.get(name).map(|data| {
-            let partial_densities = data
-                .composition
-                .iter()
-                .map(|(&z, &fraction)| (z, fraction * data.density))
-                .collect();
-            (
-                MaterialDef::new(
-                    partial_densities,
-                    data.buildup_source.clone(),
-                    Some(name.to_string()),
-                ),
-                data.density,
-            )
-        })
+    /// Returns a MaterialDef for a given material name.
+    pub fn get_material(&self, name: &str) -> Option<MaterialDef> {
+        self.compositions.get(name).cloned()
+    }
+
+    /// Adds a material to the registry manually.
+    pub fn insert(&mut self, name: String, material: MaterialDef) {
+        self.compositions.insert(name, material);
     }
 
     /// List available materials.
@@ -188,12 +179,12 @@ impl MaterialRegistry {
 }
 
 /// Material definition provided by the user.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MaterialDef {
-    /// Optional name of the material.
-    pub name: Option<String>,
-    /// Partial density (g/cm^3) of each element composing the material, mapped by its atomic number.
-    pub partial_densities: HashMap<AtomicNumber, f32>,
+    /// Density (g/cm^3) of the material.
+    pub density: f32,
+    /// Element weight fractions of the material, mapped by its atomic number.
+    pub composition: HashMap<AtomicNumber, f32>,
     /// Optional name of the material to use for buildup factor data.
     pub buildup_source: Option<String>,
 }
@@ -201,15 +192,23 @@ pub struct MaterialDef {
 impl MaterialDef {
     /// Creates a new material definition.
     pub fn new(
-        partial_densities: HashMap<AtomicNumber, f32>,
+        composition: HashMap<AtomicNumber, f32>,
+        density: f32,
         buildup_source: Option<String>,
-        name: Option<String>,
     ) -> Self {
         Self {
-            name,
-            partial_densities,
+            density,
+            composition,
             buildup_source,
         }
+    }
+
+    /// Returns the partial densities (g/cm^3) of each element composing the material.
+    pub fn partial_densities(&self) -> HashMap<AtomicNumber, f32> {
+        self.composition
+            .iter()
+            .map(|(&z, &fraction)| (z, fraction * self.density))
+            .collect()
     }
 }
 
@@ -261,12 +260,12 @@ mod tests {
     #[test]
     fn test_material_registry() {
         let registry = MaterialRegistry::from_file("../data/compositions.json").unwrap();
-        let (water, density) = registry.get_material("Water, Liquid").unwrap();
+        let water = registry.get_material("Water, Liquid").unwrap();
 
-        assert!((density - 1.0).abs() < 1e-3);
+        assert!((water.density - 1.0).abs() < 1e-3);
         // Water is H2O. Z=1 (fraction ~0.111), Z=8 (fraction ~0.888)
-        assert!(water.partial_densities.contains_key(&1));
-        assert!(water.partial_densities.contains_key(&8));
+        assert!(water.composition.contains_key(&1));
+        assert!(water.composition.contains_key(&8));
     }
 
     #[test]

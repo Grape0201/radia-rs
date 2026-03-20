@@ -4,7 +4,7 @@ use pprof::criterion::{Output, PProfProfiler};
 use radia_cli::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_core::physics::{GPBuildupProvider, TargetQuantity};
 use radia_core::csg::{CSGNode, Cell, World};
-use radia_core::material::{DummyProvider, MaterialDef};
+use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::primitive::Primitive;
 use radia_core::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
@@ -21,16 +21,20 @@ fn generate_test_environment() -> (
     Vec<f32>,
 ) {
     // 1. Setup Materials (Water and Iron)
-    let mut water_densities = HashMap::new();
-    water_densities.insert(1, 0.111); // Hydrogen
-    water_densities.insert(8, 0.889); // Oxygen
-    let water = MaterialDef::new(water_densities, Some("DummyMaterial".into()), Some("Water".into()));
+    let mut water_composition = HashMap::new();
+    water_composition.insert(1, 0.111); // Hydrogen
+    water_composition.insert(8, 0.889); // Oxygen
+    let water = MaterialDef::new(water_composition, 1.0, Some("DummyMaterial".into()));
 
-    let mut iron_densities = HashMap::new();
-    iron_densities.insert(26, 7.874); // Iron
-    let iron = MaterialDef::new(iron_densities, Some("DummyMaterial".into()), Some("Iron".into()));
+    let mut iron_composition = HashMap::new();
+    iron_composition.insert(26, 1.0); // Iron (weight fraction)
+    let iron = MaterialDef::new(iron_composition, 7.874, Some("DummyMaterial".into()));
 
-    let materials = vec![water, iron];
+    let mut registry = MaterialRegistry::new(); // Assuming MaterialRegistry::new() exists
+    registry.insert("Water".to_string(), water);
+    registry.insert("Iron".to_string(), iron);
+
+    let material_names = vec!["Water".to_string(), "Iron".to_string()];
     let energy_groups = vec![0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0];
 
 
@@ -69,7 +73,8 @@ fn generate_test_environment() -> (
     );
 
     let physics_table = radia_core::physics::MaterialPhysicsTable::generate(
-        &materials,
+        &material_names,
+        &registry,
         &energy_groups,
         &DummyProvider,
         &gp_provider,

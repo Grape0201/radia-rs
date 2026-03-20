@@ -1,4 +1,5 @@
 use crate::constants::{E_EPSILON, O_EPSILON, T_EPSILON};
+use crate::material::{GroupIndex, MassAttenuationProvider, MaterialDef, MaterialIndex};
 
 /// Error type for buildup factor calculations and data management
 #[derive(thiserror::Error, Debug)]
@@ -28,6 +29,12 @@ pub enum BuildupError {
 
     #[error("Invalid table size: expected {expected}, got {actual}")]
     InvalidTableSize { expected: usize, actual: usize },
+
+    #[error("Material '{0}' missing buildup source")]
+    MissingBuildupSource(String),
+
+    #[error("{0}")]
+    Other(String),
 }
 
 /// Model representing the buildup factor and its required parameters
@@ -95,72 +102,115 @@ impl BuildupModel {
     }
 }
 
-/// A table for looking up the corresponding buildup factor model
-/// from material index and energy group index.
+/// A unified table for looking up both macroscopic cross sections (mu) and buildup factor models.
+/// This ensures consistent indexing for both physical properties.
 #[derive(Clone, Debug)]
-pub struct BuildupTable {
-    /// Stored as a 1D array: models[material_index * num_groups + group_index]
-    models: Vec<BuildupModel>,
+pub struct MaterialPhysicsTable {
+    /// Macroscopic cross sections [cm^-1] stored in (material_index, group_index) order.
+    mu_data: Vec<f32>,
+    /// Buildup factor models stored in (material_index, group_index) order.
+    buildup_models: Vec<BuildupModel>,
     num_materials: usize,
     num_groups: usize,
 }
 
-impl BuildupTable {
-    /// Creates a table from pre-calculated models.
-    pub fn new(
-        models: Vec<BuildupModel>,
-        num_materials: usize,
-        num_groups: usize,
-    ) -> Result<Self, BuildupError> {
-        if models.len() != num_materials * num_groups {
-            return Err(BuildupError::InvalidTableSize {
-                expected: num_materials * num_groups,
-                actual: models.len(),
-            });
+impl MaterialPhysicsTable {
+    /// Generates a physics table by pre-calculating linear attenuation coefficients
+    /// and buildup models for the given materials and energy groups.
+    pub fn generate(
+        materials: &[MaterialDef],
+        energy_groups: &[f32],
+        mu_provider: &impl MassAttenuationProvider,
+        buildup_provider: &GPBuildupProvider,
+        quantity: TargetQuantity,
+    ) -> Result<Self, crate::material::MaterialError> {
+        let num_materials = materials.len();
+        let num_groups = energy_groups.len();
+
+        let mut mu_data = Vec::with_capacity(num_materials * num_groups);
+        let mut buildup_models = Vec::with_capacity(num_materials * num_groups);
+
+        for mat in materials {
+            // 1. Calculate macroscopic cross sections (mu)
+            for &energy in energy_groups {
+                let mut mu = 0.0;
+                for (&z, &density) in &mat.partial_densities {
+                    let mass_att = mu_provider.get_mass_attenuation(z, energy)?;
+                    mu += mass_att * density;
+                }
+                mu_data.push(mu);
+            }
+
+            // 2. Interpolate buildup models
+            let buildup_source = mat.buildup_source.as_deref().ok_or_else(|| {
+                crate::material::MaterialError::Other(format!(
+                    "Material '{}' missing buildup source",
+                    mat.name.as_deref().unwrap_or("Unknown")
+                ))
+            })?;
+
+            for &energy in energy_groups {
+                let model = buildup_provider
+                    .interpolate(buildup_source, quantity, energy)
+                    .map_err(|e| crate::material::MaterialError::Other(e.to_string()))?;
+                buildup_models.push(model);
+            }
         }
+
         Ok(Self {
-            models,
+            mu_data,
+            buildup_models,
             num_materials,
             num_groups,
         })
     }
 
-    /// Derives the buildup factor from material ID, group ID, and optical thickness
+    /// Gets the linear attenuation coefficient mu [cm^-1] in O(1) time.
+    #[inline(always)]
+    pub fn get_mu(&self, material_index: MaterialIndex, group_index: GroupIndex) -> f32 {
+        debug_assert!(material_index < self.num_materials);
+        debug_assert!(group_index < self.num_groups);
+        self.mu_data[material_index * self.num_groups + group_index]
+    }
+
+    /// Calculates the buildup factor in O(1) time.
     #[inline(always)]
     pub fn get_buildup(
         &self,
-        material_index: usize,
-        group_index: usize,
+        material_index: MaterialIndex,
+        group_index: GroupIndex,
         optical_thickness: f32,
     ) -> f32 {
         debug_assert!(material_index < self.num_materials);
         debug_assert!(group_index < self.num_groups);
-        let model = &self.models[material_index * self.num_groups + group_index];
+        let model = &self.buildup_models[material_index * self.num_groups + group_index];
         model.calculate(optical_thickness)
     }
 
-    /// Creates a closure that looks up the model in O(1) time and returns its calculation result.
-    /// Signature: (material_index, group_index, optical_thickness) -> buildup_factor
-    pub fn into_closure(self) -> impl Fn(usize, usize, f32) -> f32 + Send + Sync {
-        let models = self.models;
+    /// Returns index-based closures for attenuation and buildup calculations.
+    pub fn into_closures(
+        self,
+    ) -> (
+        impl Fn(MaterialIndex, GroupIndex) -> f32 + Send + Sync,
+        impl Fn(MaterialIndex, GroupIndex, f32) -> f32 + Send + Sync,
+    ) {
+        let mu_data = self.mu_data;
+        let buildup_models = self.buildup_models;
         let num_groups = self.num_groups;
-        move |mat_idx, grp_idx, optical_thickness| {
-            models[mat_idx * num_groups + grp_idx].calculate(optical_thickness)
-        }
+
+        let mu_closure = {
+            let mu_data = mu_data.clone();
+            move |mat_idx: MaterialIndex, grp_idx: GroupIndex| mu_data[mat_idx * num_groups + grp_idx]
+        };
+
+        let buildup_closure = move |mat_idx: MaterialIndex, grp_idx: GroupIndex, ot: f32| {
+            buildup_models[mat_idx * num_groups + grp_idx].calculate(ot)
+        };
+
+        (mu_closure, buildup_closure)
     }
 }
 
-// ==== Dummy provider implementation for examples / tests ====
-
-/// Provides default Constant(1.0) for testing
-pub struct DummyBuildupProvider;
-
-impl DummyBuildupProvider {
-    pub fn generate_constant_table(num_materials: usize, num_groups: usize) -> BuildupTable {
-        let models = vec![BuildupModel::Constant(1.0); num_materials * num_groups];
-        BuildupTable::new(models, num_materials, num_groups).expect("Dummy table generation failed")
-    }
-}
 
 // ==== G-P Method Provider with Interpolation ====
 
@@ -318,27 +368,6 @@ impl GPBuildupProvider {
         // This path should technically not be reached if range checks pass
         Err(BuildupError::EmptyData(material_name.to_string()))
     }
-
-    /// Generates a BuildupTable for the specified material names, target quantity, and energy grid.
-    pub fn generate_table(
-        &self,
-        material_names: &[&str],
-        quantity: TargetQuantity,
-        energy_groups: &[f32],
-    ) -> Result<BuildupTable, BuildupError> {
-        let num_materials = material_names.len();
-        let num_groups = energy_groups.len();
-        let mut models = Vec::with_capacity(num_materials * num_groups);
-
-        for &mat in material_names {
-            for &energy in energy_groups {
-                let model = self.interpolate(mat, quantity, energy)?;
-                models.push(model);
-            }
-        }
-
-        BuildupTable::new(models, num_materials, num_groups)
-    }
 }
 
 #[cfg(test)]
@@ -352,11 +381,23 @@ mod tests {
     }
 
     #[test]
-    fn test_buildup_closure() {
-        let table = DummyBuildupProvider::generate_constant_table(2, 3);
-        let bpf = table.into_closure();
-        // material 0, group 1, optical thickness 2.5
-        assert_eq!(bpf(0, 1, 2.5), 1.0);
+    fn test_physics_table_closures() {
+        let mut densities = std::collections::HashMap::new();
+        densities.insert(1, 1.0);
+        let _mat = MaterialDef::new(densities, Some("Dummy".into()), None);
+
+        let _provider = GPBuildupProvider::new(); // empty, but we'll use Constant for this test
+        // Actually, let's just manually construct the table for this logic test
+        let table = MaterialPhysicsTable {
+            mu_data: vec![0.05],
+            buildup_models: vec![BuildupModel::Constant(1.0)],
+            num_materials: 1,
+            num_groups: 1,
+        };
+        
+        let (mu_f, b_f) = table.into_closures();
+        assert_eq!(mu_f(0, 0), 0.05);
+        assert_eq!(b_f(0, 0, 2.5), 1.0);
     }
 
     #[test]
@@ -432,10 +473,29 @@ mod tests {
         assert!(matches!(err_high, Err(BuildupError::EnergyTooHigh { .. })));
 
         // Test Table Generation
-        let table = provider
-            .generate_table(&["DummyMaterial"], TargetQuantity::Exposure, &[1.0, 2.0])
-            .unwrap();
-        // DummyMaterial (material 0), 2.0 MeV (group 1)
+        let mut mat_densities = std::collections::HashMap::new();
+        mat_densities.insert(26, 7.87); // Iron
+        let mat = crate::material::MaterialDef::new(
+            mat_densities,
+            Some("DummyMaterial".into()),
+            Some("Iron".into()),
+        );
+        
+        let mu_provider = crate::material::DummyProvider;
+        let table = MaterialPhysicsTable::generate(
+            &[mat], 
+            &[1.0, 2.0], 
+            &mu_provider, 
+            &provider, 
+            TargetQuantity::Exposure
+        ).unwrap();
+
+        // Check mu
+        // Iron (Z=26) density 7.87. DummyProvider gives 0.01 for Z=26.
+        // mu = 0.01 * 7.87 = 0.0787
+        assert!((table.get_mu(0, 0) - 0.0787).abs() < 1e-6);
+
+        // Check buildup: DummyMaterial (material 0), 2.0 MeV (energy index 1)
         let b = table.get_buildup(0, 1, 5.0); // B(x) at x=5.0
         assert!(b > 1.0); // Should be >> 1.0 due to buildup
     }

@@ -6,6 +6,9 @@ use std::path::Path;
 
 pub type AtomicNumber = u32;
 
+pub type MaterialIndex = usize;
+pub type GroupIndex = usize;
+
 #[derive(thiserror::Error, Debug)]
 pub enum MaterialError {
     #[error("IO error: {0}")]
@@ -138,11 +141,11 @@ impl MassAttenuationProvider for JsonMassAttenuationProvider {
     }
 }
 
-/// Composition data structure for JSON deserialization.
 #[derive(Debug, Deserialize)]
 struct CompositionData {
     density: f32,
     composition: HashMap<AtomicNumber, f32>,
+    buildup_source: Option<String>,
 }
 
 /// Registry for standard material compositions.
@@ -167,7 +170,14 @@ impl MaterialRegistry {
                 .iter()
                 .map(|(&z, &fraction)| (z, fraction * data.density))
                 .collect();
-            (MaterialDef::new(partial_densities), data.density)
+            (
+                MaterialDef::new(
+                    partial_densities,
+                    data.buildup_source.clone(),
+                    Some(name.to_string()),
+                ),
+                data.density,
+            )
         })
     }
 
@@ -180,77 +190,29 @@ impl MaterialRegistry {
 /// Material definition provided by the user.
 #[derive(Clone, Debug)]
 pub struct MaterialDef {
+    /// Optional name of the material.
+    pub name: Option<String>,
     /// Partial density (g/cm^3) of each element composing the material, mapped by its atomic number.
     pub partial_densities: HashMap<AtomicNumber, f32>,
+    /// Optional name of the material to use for buildup factor data.
+    pub buildup_source: Option<String>,
 }
 
 impl MaterialDef {
     /// Creates a new material definition.
-    pub fn new(partial_densities: HashMap<AtomicNumber, f32>) -> Self {
-        Self { partial_densities }
-    }
-}
-
-/// A table of pre-calculated macroscopic cross sections (linear attenuation coefficients).
-#[derive(Clone, Debug)]
-pub struct MuTable {
-    /// Linear attenuation coefficients [cm^-1] stored in (material_index, group_index) order.
-    /// Flattened into a 1D array for performance: data[material_index * num_groups + group_index].
-    data: Vec<f32>,
-    num_materials: usize,
-    num_groups: usize,
-}
-
-impl MuTable {
-    /// Generates a table by pre-calculating the linear attenuation coefficients
-    /// given the user's materials, energy groups, and a data provider.
-    pub fn generate(
-        materials: &[MaterialDef],
-        energy_groups: &[f32],
-        provider: &impl MassAttenuationProvider,
-    ) -> Result<Self, MaterialError> {
-        let num_materials = materials.len();
-        let num_groups = energy_groups.len();
-        let mut data = Vec::with_capacity(num_materials * num_groups);
-
-        for material in materials {
-            for &energy in energy_groups {
-                let mut mu = 0.0;
-                for (&z, &density) in &material.partial_densities {
-                    let mass_att = provider.get_mass_attenuation(z, energy)?;
-                    mu += mass_att * density;
-                }
-                data.push(mu);
-            }
+    pub fn new(
+        partial_densities: HashMap<AtomicNumber, f32>,
+        buildup_source: Option<String>,
+        name: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            partial_densities,
+            buildup_source,
         }
-
-        Ok(Self {
-            data,
-            num_materials,
-            num_groups,
-        })
-    }
-
-    /// Gets the linear attenuation coefficient mu [cm^-1] in O(1) time.
-    /// Due to contiguous memory access, this is highly cache-efficient and fast.
-    #[inline(always)]
-    pub fn get_mu(&self, material_index: usize, group_index: usize) -> f32 {
-        debug_assert!(
-            material_index < self.num_materials,
-            "Invalid material index"
-        );
-        debug_assert!(group_index < self.num_groups, "Invalid energy group index");
-        self.data[material_index * self.num_groups + group_index]
-    }
-
-    /// Returns a closure that captures the table and provides O(1) access.
-    /// You can move this closure without worrying about lifetimes.
-    pub fn into_closure(self) -> impl Fn(usize, usize) -> f32 + Send + Sync {
-        let data = self.data;
-        let num_groups = self.num_groups;
-        move |mat_idx, grp_idx| data[mat_idx * num_groups + grp_idx]
     }
 }
+
 
 // ==== Dummy provider implementation for examples / tests ====
 pub struct DummyProvider;
@@ -274,56 +236,6 @@ impl MassAttenuationProvider for DummyProvider {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_mu_table_generation_and_access() {
-        // Create water-like material
-        let mut water_densities = HashMap::new();
-        water_densities.insert(1, 0.111); // Hydrogen
-        water_densities.insert(8, 0.889); // Oxygen
-        let water = MaterialDef::new(water_densities);
-
-        // Create lead-like material
-        let mut lead_densities = HashMap::new();
-        lead_densities.insert(82, 11.35); // Lead
-        let lead = MaterialDef::new(lead_densities);
-
-        let materials = vec![water, lead];
-        let energy_groups = vec![0.5, 1.0, 2.0];
-        let provider = DummyProvider;
-
-        let mu_table = MuTable::generate(&materials, &energy_groups, &provider).unwrap();
-
-        // Hydrogen mass att at DummyProvider: 0.05
-        // Oxygen mass att at DummyProvider: 0.06
-        // Water linear att: 0.111 * 0.05 + 0.889 * 0.06 = 0.00555 + 0.05334 = 0.05889
-        let water_mu = mu_table.get_mu(0, 0);
-        assert!((water_mu - 0.05889).abs() < 1e-6);
-
-        // Lead mass att at DummyProvider: 0.01 (default)
-        // Lead linear att: 11.35 * 0.01 = 0.1135
-        let lead_mu = mu_table.get_mu(1, 2);
-        assert!((lead_mu - 0.1135).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_mu_table_closure() {
-        let mut densities = HashMap::new();
-        densities.insert(1, 1.0);
-        let mat = MaterialDef::new(densities);
-
-        let materials = vec![mat];
-        let energy_groups = vec![1.0];
-        let provider = DummyProvider;
-
-        let mu_table = MuTable::generate(&materials, &energy_groups, &provider).unwrap();
-        let mu_func = mu_table.into_closure();
-
-        let mu = mu_func(0, 0);
-        // Hydrogen mass att: 0.05
-        // Total density: 1.0
-        // Expected mu: 0.05 * 1.0 = 0.05
-        assert!((mu - 0.05).abs() < 1e-6);
-    }
 
     #[test]
     fn test_nist_json_provider() {
@@ -355,15 +267,6 @@ mod tests {
         // Water is H2O. Z=1 (fraction ~0.111), Z=8 (fraction ~0.888)
         assert!(water.partial_densities.contains_key(&1));
         assert!(water.partial_densities.contains_key(&8));
-
-        // Calculate mu for Water at 1.0 MeV
-        let provider = JsonMassAttenuationProvider::from_file("../data/elements.json").unwrap();
-        let mu_table = MuTable::generate(&[water], &[1.0], &provider).unwrap();
-
-        // NIST mu/rho for Water at 1.0 MeV: 7.072E-02 cm2/g
-        // Density = 1.0, so mu should be ~0.07072 cm-1
-        let water_mu = mu_table.get_mu(0, 0);
-        assert!((water_mu - 0.07072).abs() < 1e-4);
     }
 
     #[test]

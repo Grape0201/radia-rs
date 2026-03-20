@@ -2,9 +2,9 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
 use radia_cli::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
-use radia_core::buildup::{GPBuildupProvider, TargetQuantity};
+use radia_core::physics::{GPBuildupProvider, TargetQuantity};
 use radia_core::csg::{CSGNode, Cell, World};
-use radia_core::material::{DummyProvider, MaterialDef, MuTable};
+use radia_core::material::{DummyProvider, MaterialDef};
 use radia_core::primitive::Primitive;
 use radia_core::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
@@ -16,8 +16,7 @@ fn config_with_profiler() -> Criterion {
 
 fn generate_test_environment() -> (
     World,
-    MuTable,
-    radia_core::buildup::BuildupTable,
+    radia_core::physics::MaterialPhysicsTable,
     Vec<PointSource>,
     Vec<f32>,
 ) {
@@ -25,23 +24,20 @@ fn generate_test_environment() -> (
     let mut water_densities = HashMap::new();
     water_densities.insert(1, 0.111); // Hydrogen
     water_densities.insert(8, 0.889); // Oxygen
-    let water = MaterialDef::new(water_densities);
+    let water = MaterialDef::new(water_densities, Some("DummyMaterial".into()), Some("Water".into()));
 
     let mut iron_densities = HashMap::new();
     iron_densities.insert(26, 7.874); // Iron
-    let iron = MaterialDef::new(iron_densities);
+    let iron = MaterialDef::new(iron_densities, Some("DummyMaterial".into()), Some("Iron".into()));
 
     let materials = vec![water, iron];
     let energy_groups = vec![0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0];
 
-    // Using DummyProvider for MuTable, normally we'd have real cross-sections
-    let provider = DummyProvider;
-    let mu_table = MuTable::generate(&materials, &energy_groups, &provider).unwrap();
 
-    // 2. Setup Buildup
+    // 2. Setup Physics (Attenuation and Buildup)
     let mut gp_provider = GPBuildupProvider::new();
     let dummy_params = vec![
-        radia_core::buildup::GPParams {
+        radia_core::physics::GPParams {
             energy_mev: 0.5,
             a: 0.1,
             b: 2.0,
@@ -49,7 +45,7 @@ fn generate_test_environment() -> (
             d: 0.05,
             xk: 14.0,
         },
-        radia_core::buildup::GPParams {
+        radia_core::physics::GPParams {
             energy_mev: 1.0,
             a: 0.12,
             b: 2.1,
@@ -57,7 +53,7 @@ fn generate_test_environment() -> (
             d: 0.04,
             xk: 14.4,
         },
-        radia_core::buildup::GPParams {
+        radia_core::physics::GPParams {
             energy_mev: 10.0,
             a: 0.2,
             b: 1.3,
@@ -72,13 +68,13 @@ fn generate_test_environment() -> (
         dummy_params,
     );
 
-    let buildup_table = gp_provider
-        .generate_table(
-            &["DummyMaterial", "DummyMaterial"],
-            TargetQuantity::AmbientDoseEquivalent,
-            &energy_groups,
-        )
-        .expect("Failed to generate buildup table");
+    let physics_table = radia_core::physics::MaterialPhysicsTable::generate(
+        &materials,
+        &energy_groups,
+        &DummyProvider,
+        &gp_provider,
+        TargetQuantity::AmbientDoseEquivalent,
+    ).expect("Failed to generate physics table");
 
     // 3. Setup Geometry (Nested Spheres: Inner Iron core, Outer Water shell)
     let mut world = World {
@@ -123,16 +119,15 @@ fn generate_test_environment() -> (
     // 5. Setup Conversion Factors
     let conversion_factors = vec![1.0; energy_groups.len()];
 
-    (world, mu_table, buildup_table, sources, conversion_factors)
+    (world, physics_table, sources, conversion_factors)
 }
 
 fn benchmark_single(c: &mut Criterion) {
-    let (world, mu_table, buildup_table, sources, conversion_factors) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors) = generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
 
     // We bind the closures outside of the loop to measure inner calculation speed
-    let get_mu = mu_table.into_closure();
-    let get_buildup = buildup_table.into_closure();
+    let (get_mu, get_buildup) = physics_table.into_closures();
 
     c.bench_function("calculate_dose_rate", |b| {
         b.iter(|| {
@@ -149,10 +144,9 @@ fn benchmark_single(c: &mut Criterion) {
 }
 
 fn benchmark_parallel(c: &mut Criterion) {
-    let (world, mu_table, buildup_table, sources, conversion_factors) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors) = generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
-    let get_mu = mu_table.into_closure();
-    let get_buildup = buildup_table.into_closure();
+    let (get_mu, get_buildup) = physics_table.into_closures();
 
     let mut group = c.benchmark_group("Parallel_Dose_Calculation");
     let chunk_sizes = [10, 50, 100, 500, 1000];

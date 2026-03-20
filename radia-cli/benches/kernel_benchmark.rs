@@ -134,15 +134,11 @@ fn benchmark_single(c: &mut Criterion) {
     let get_mu = mu_table.into_closure();
     let get_buildup = buildup_table.into_closure();
 
-    // Wrap buildup to match Fn(usize, f32) -> f32 expected by kernel.
-    // We choose material index 0 (Water) for the buildup factor in this benchmark.
-    let get_buildup_wrapped = |grp_idx, ot: f32| get_buildup(0, grp_idx, ot);
-
     c.bench_function("calculate_dose_rate", |b| {
         b.iter(|| {
             calculate_dose_rate(
                 black_box(&get_mu),
-                black_box(&get_buildup_wrapped),
+                black_box(&get_buildup),
                 black_box(&world),
                 black_box(&conversion_factors),
                 black_box(detector_position),
@@ -157,10 +153,8 @@ fn benchmark_parallel(c: &mut Criterion) {
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
     let get_mu = mu_table.into_closure();
     let get_buildup = buildup_table.into_closure();
-    let get_buildup_wrapped = |grp_idx, ot: f32| get_buildup(0, grp_idx, ot);
 
     let mut group = c.benchmark_group("Parallel_Dose_Calculation");
-
     let chunk_sizes = [10, 50, 100, 500, 1000];
 
     for &size in &chunk_sizes {
@@ -168,7 +162,7 @@ fn benchmark_parallel(c: &mut Criterion) {
             b.iter(|| {
                 calculate_dose_rate_parallel(
                     black_box(&get_mu),
-                    black_box(&get_buildup_wrapped),
+                    black_box(&get_buildup),
                     &world,
                     &conversion_factors,
                     detector_position,

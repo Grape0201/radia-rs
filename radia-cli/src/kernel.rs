@@ -28,7 +28,7 @@ pub fn calculate_dose_rate<F, B>(
 ) -> f32
 where
     F: Fn(usize, usize) -> f32,
-    B: Fn(usize, f32) -> f32,
+    B: Fn(usize, usize, f32) -> f32,
 {
     let mut total_dose = 0.0;
     let num_groups = conversion_factors.len();
@@ -61,6 +61,10 @@ where
 
         let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
 
+        // TODO: Implement logic to determine the buildup material ID per Ray (source-detector path).
+        // For now, it defaults to a dummy index (0).
+        let buildup_material_id = 0;
+
         let mut source_dose = 0.0;
 
         // Loop over energy division
@@ -71,7 +75,7 @@ where
                 optical_thickness += get_mu(mat_id as usize, i) * length;
             }
 
-            let buildup = get_buildup(i, optical_thickness);
+            let buildup = get_buildup(buildup_material_id, i, optical_thickness);
             let material_attenuation = (-optical_thickness).exp();
 
             // flux to dose conversion
@@ -95,7 +99,7 @@ pub fn calculate_dose_rate_parallel<F, B>(
 ) -> f32
 where
     F: Fn(usize, usize) -> f32 + Sync,
-    B: Fn(usize, f32) -> f32 + Sync,
+    B: Fn(usize, usize, f32) -> f32 + Sync,
 {
     sources
         .par_chunks(chunk_size)
@@ -132,7 +136,7 @@ mod tests {
         let detector = Vec3A::new(10.0, 0.0, 0.0);
 
         let get_mu = |_, _| 0.0;
-        let get_buildup = |_, _| 1.0;
+        let get_buildup = |_, _, _| 1.0;
 
         let conversion_factors = vec![1.0];
 

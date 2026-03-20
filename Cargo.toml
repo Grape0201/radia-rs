@@ -1,8 +1,7 @@
 [workspace]
 members = [
     "radia-core",
-    "radia-cli",
-    "radia-wasm"
+    "radia-cli"
 ]
 resolver = "2"
 

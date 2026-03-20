@@ -12,8 +12,6 @@ This repository is a Cargo workspace consisting of the following crates:
 - **`radia-cli`**: CLI-specific logic and high-performance parallel kernel.
   - Extends `radia-core` with `rayon`-based parallelization.
   - Contains benchmarks and the main executable.
-- **`radia-wasm`**: WebAssembly bindings for `radia-core`.
-  - Enables point cloud generation and visualization in web browsers.
 
 ## Development
 

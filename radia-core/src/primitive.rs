@@ -58,7 +58,9 @@ pub struct Ray {
 const SEGMENT_MIN: f32 = EPSILON;
 const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 
-pub(crate) struct IntersectionTs {
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub struct IntersectionTs {
     pub(crate) count: usize,
     /// 0 < ts[0],ts[1] < 1
     pub(crate) ts: [f32; 2],
@@ -93,7 +95,8 @@ impl IntersectionTs {
 
 impl Primitive {
     #[inline(always)]
-    pub(crate) fn get_intersections(&self, ray: &Ray) -> IntersectionTs {
+    #[doc(hidden)]
+    pub fn get_intersections(&self, ray: &Ray) -> IntersectionTs {
         let mut hits = IntersectionTs::empty();
         match self {
             Primitive::Sphere { center, radius2 } => {

@@ -737,7 +737,9 @@ dependencies = [
 name = "radia-core"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "glam",
+ "pprof",
  "serde",
  "serde_json",
  "thiserror",

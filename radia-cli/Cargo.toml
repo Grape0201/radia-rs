@@ -15,10 +15,6 @@ thiserror.workspace = true
 name = "kernel_benchmark"
 harness = false
 
-[[bench]]
-name = "intersection_benchmark"
-harness = false
-
 [dev-dependencies]
 criterion = "0.5.1"
 pprof = { version = "0.15", features = ["flamegraph", "criterion"] }

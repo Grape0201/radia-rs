@@ -185,21 +185,14 @@ pub struct MaterialDef {
     pub(crate) density: f32,
     /// Element weight fractions of the material, mapped by its atomic number.
     pub(crate) composition: HashMap<AtomicNumber, f32>,
-    /// Optional name of the material to use for buildup factor data.
-    pub(crate) buildup_source: Option<String>,
 }
 
 impl MaterialDef {
     /// Creates a new material definition.
-    pub fn new(
-        composition: HashMap<AtomicNumber, f32>,
-        density: f32,
-        buildup_source: Option<String>,
-    ) -> Self {
+    pub fn new(composition: HashMap<AtomicNumber, f32>, density: f32) -> Self {
         Self {
             density,
             composition,
-            buildup_source,
         }
     }
 
@@ -211,7 +204,6 @@ impl MaterialDef {
             .collect()
     }
 }
-
 
 // ==== Dummy provider implementation for examples / tests ====
 pub struct DummyProvider;
@@ -234,7 +226,6 @@ impl MassAttenuationProvider for DummyProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_nist_json_provider() {

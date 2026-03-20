@@ -1,6 +1,8 @@
 use crate::constants::{E_EPSILON, O_EPSILON, T_EPSILON};
 use crate::material::{GroupIndex, MassAttenuationProvider, MaterialIndex, MaterialRegistry};
 
+use std::collections::HashMap;
+
 /// Error type for buildup factor calculations and data management
 #[derive(thiserror::Error, Debug)]
 pub enum BuildupError {
@@ -132,7 +134,7 @@ impl MaterialPhysicsTable {
     /// Generates a physics table by pre-calculating linear attenuation coefficients
     /// and buildup models for the given materials and energy groups.
     pub fn generate(
-        material_names: &[String],
+        material_names: &HashMap<String, String>, // key: name, value: buildup source name
         registry: &MaterialRegistry,
         energy_groups: &[f32],
         mu_provider: &impl MassAttenuationProvider,
@@ -145,10 +147,10 @@ impl MaterialPhysicsTable {
         let mut mu_data = Vec::with_capacity(num_materials * num_groups);
         let mut buildup_models = Vec::with_capacity(num_materials * num_groups);
 
-        for name in material_names {
+        for (name, buildup_source) in material_names {
             let mat = registry
                 .get_material(name)
-                .ok_or_else(|| MaterialPhysicsError::MaterialDataNotInRegistry(name.clone()))?;
+                .ok_or_else(|| MaterialPhysicsError::MaterialDataNotInRegistry(name.into()))?;
 
             // 1. Calculate macroscopic cross sections (mu)
             for &energy in energy_groups {
@@ -161,11 +163,8 @@ impl MaterialPhysicsTable {
             }
 
             // 2. Interpolate buildup models
-            let buildup_source = mat.buildup_source.as_deref().unwrap_or(name);
-
             for &energy in energy_groups {
-                let model = buildup_provider
-                    .interpolate(buildup_source, quantity, energy)?;
+                let model = buildup_provider.interpolate(buildup_source, quantity, energy)?;
                 buildup_models.push(model);
             }
         }
@@ -213,7 +212,9 @@ impl MaterialPhysicsTable {
 
         let mu_closure = {
             let mu_data = mu_data.clone();
-            move |mat_idx: MaterialIndex, grp_idx: GroupIndex| mu_data[mat_idx * num_groups + grp_idx]
+            move |mat_idx: MaterialIndex, grp_idx: GroupIndex| {
+                mu_data[mat_idx * num_groups + grp_idx]
+            }
         };
 
         let buildup_closure = move |mat_idx: MaterialIndex, grp_idx: GroupIndex, ot: f32| {
@@ -223,7 +224,6 @@ impl MaterialPhysicsTable {
         (mu_closure, buildup_closure)
     }
 }
-
 
 // ==== G-P Method Provider with Interpolation ====
 
@@ -296,7 +296,7 @@ impl GPBuildupProvider {
 
     /// Linear interpolation with respect to log(E).
     /// This is common practice for buildup factor parameters.
-    pub fn interpolate(
+    pub(crate) fn interpolate(
         &self,
         material_name: &str,
         quantity: TargetQuantity,
@@ -398,7 +398,7 @@ mod tests {
     fn test_physics_table_closures() {
         let mut composition = std::collections::HashMap::new();
         composition.insert(1, 1.0);
-        let _mat = MaterialDef::new(composition, 1.0, Some("Dummy".into()));
+        let _mat = MaterialDef::new(composition, 1.0);
 
         let _provider = GPBuildupProvider::new(); // empty, but we'll use Constant for this test
         // Actually, let's just manually construct the table for this logic test
@@ -408,7 +408,7 @@ mod tests {
             num_materials: 1,
             num_groups: 1,
         };
-        
+
         let (mu_f, b_f) = table.into_closures();
         assert_eq!(mu_f(0, 0), 0.05);
         assert_eq!(b_f(0, 0, 2.5), 1.0);
@@ -489,20 +489,21 @@ mod tests {
         let mut registry = MaterialRegistry::new();
         let mut dummy_composition = std::collections::HashMap::new();
         dummy_composition.insert(1, 1.0);
-        let dummy_mat = MaterialDef::new(dummy_composition, 1.0, None);
+        let dummy_mat = MaterialDef::new(dummy_composition, 1.0);
         registry.insert("DummyMaterial".to_string(), dummy_mat);
 
-        let mat_name = "DummyMaterial".to_string();
+        let mat_names = HashMap::from([("DummyMaterial".to_string(), "DummyMaterial".to_string())]);
 
         let mu_provider = crate::material::DummyProvider;
         let table = MaterialPhysicsTable::generate(
-            &[mat_name], 
+            &mat_names,
             &registry,
-            &[1.0, 2.0], 
-            &mu_provider, 
-            &provider, 
-            TargetQuantity::Exposure
-        ).unwrap();
+            &[1.0, 2.0],
+            &mu_provider,
+            &provider,
+            TargetQuantity::Exposure,
+        )
+        .unwrap();
 
         // Check mu
         // DummyMaterial (Z=1) density 1.0. DummyProvider gives 0.05 for Z=1.

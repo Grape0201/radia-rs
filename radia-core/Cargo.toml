@@ -8,3 +8,11 @@ glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+pprof.workspace = true
+
+[[bench]]
+name = "intersection_benchmark"
+harness = false

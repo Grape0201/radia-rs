@@ -877,8 +877,6 @@ dependencies = [
  "criterion",
  "glam",
  "pprof",
- "serde",
- "serde_json",
  "thiserror",
 ]
 

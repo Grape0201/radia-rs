@@ -1,6 +1,7 @@
 use miette::{IntoDiagnostic, Result};
 use radia_cli::kernel::calculate_dose_rate_parallel;
-use radia_core::material::{JsonMassAttenuationProvider, MaterialRegistry};
+use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
+use radia_core::material::MaterialRegistry;
 use radia_core::physics::{GPBuildupProvider, MaterialPhysicsTable};
 use radia_input::SimulationInput;
 use std::env;
@@ -36,7 +37,7 @@ fn main() -> Result<()> {
     let world = sim_input.world.build(&material_map).into_diagnostic()?;
 
     println!("Building materials...");
-    let mut registry = match MaterialRegistry::from_file("data/elements.json") {
+    let mut registry = match load_material_registry_from_file("data/elements.json") {
         Ok(r) => r,
         Err(_) => MaterialRegistry::new(),
     };

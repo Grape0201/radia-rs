@@ -7,6 +7,7 @@ A photon shielding calculation implementation using the Point Kernel Method in R
 This repository is a Cargo workspace consisting of the following crates:
 
 - **`radia-core`**: Core calculation logic, geometry (CSG), and material handling.
+  - MINIMAL dependencies.
   - No dependencies on `rayon`.
   - Suitable for use in environments where thread-based parallelism is not desired or needed.
 - **`radia-cli`**: CLI-specific logic and high-performance parallel kernel.

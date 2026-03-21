@@ -70,15 +70,6 @@ impl SimulationInput {
     }
 
     pub fn validate(&self) -> Result<(), InputError> {
-        for cell in &self.world.cells {
-            if !self.buildup_alias_map.contains_key(&cell.material_name) {
-                return Err(InputError::InvalidMaterial {
-                    name: cell.material_name.clone(),
-                    reason: "Missing from buildup_alias_map. Must map used materials to a valid buildup parameter name.".to_string(),
-                });
-            }
-        }
-
         if self.source.energy_groups.len() != self.source.intensity_by_group.len() {
             return Err(InputError::InvalidEnergyGroupLength(
                 "energy_groups length and intensity_by_group length must match".to_string(),

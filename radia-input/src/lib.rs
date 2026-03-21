@@ -28,6 +28,8 @@ pub enum InputError {
     InvalidSource(String),
     #[error("Invalid buildup parameter for material '{name}': {reason}")]
     InvalidBuildup { name: String, reason: String },
+    #[error("Validation error: {0}")]
+    ValidationError(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("YAML error: {message}")]
@@ -74,6 +76,72 @@ impl SimulationInput {
                 span,
             }
         })?;
+        
+        input.validate()?;
+        
         Ok(input)
+    }
+
+    pub fn validate(&self) -> Result<(), InputError> {
+        if self.sources.is_empty() {
+            return Err(InputError::ValidationError("At least one source must be defined".to_string()));
+        }
+        if self.detectors.is_empty() {
+            return Err(InputError::ValidationError("At least one detector must be defined".to_string()));
+        }
+
+        let mut mat_names = std::collections::HashSet::new();
+        for mat in &self.materials {
+            if !mat_names.insert(&mat.name) {
+                return Err(InputError::ValidationError(format!("Duplicate material definition: '{}'", mat.name)));
+            }
+        }
+
+        let mut buildup_names = std::collections::HashSet::new();
+        for bp in &self.buildup_params {
+            if !buildup_names.insert(&bp.material_name) {
+                return Err(InputError::ValidationError(format!("Duplicate buildup parameters definition for material: '{}'", bp.material_name)));
+            }
+        }
+
+        let mut det_names = std::collections::HashSet::new();
+        for det in &self.detectors {
+            let name = &det.name;
+            if !det_names.insert(name.clone()) {
+                return Err(InputError::ValidationError(format!("Duplicate detector definition: '{}'", name)));
+            }
+        }
+
+        for cell in &self.world.cells {
+            if !self.buildup_alias_map.contains_key(&cell.material_name) {
+                return Err(InputError::InvalidMaterial {
+                    name: cell.material_name.clone(),
+                    reason: "Missing from buildup_alias_map. Must map used materials to a valid buildup parameter name.".to_string(),
+                });
+            }
+        }
+
+        for src in &self.sources {
+            if src.energy_groups.is_empty() {
+                return Err(InputError::InvalidSource("energy_groups cannot be empty".to_string()));
+            }
+            if src.energy_groups.len() != src.intensity_by_group.len() {
+                return Err(InputError::InvalidSource(
+                    "energy_groups length and intensity_by_group length must match".to_string()
+                ));
+            }
+            if src.intensity_by_group.iter().any(|&i| i < 0.0) {
+                return Err(InputError::InvalidSource(
+                    "intensity_by_group elements cannot be negative".to_string()
+                ));
+            }
+            if !self.conversion_factors.is_empty() && self.conversion_factors.len() != src.energy_groups.len() {
+                return Err(InputError::ValidationError(
+                    "conversion_factors length must match sources energy_groups length".to_string()
+                ));
+            }
+        }
+
+        Ok(())
     }
 }

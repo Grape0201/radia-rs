@@ -26,15 +26,6 @@ fn main() -> Result<()> {
     used_materials.sort();
     used_materials.dedup();
 
-    for mat_name in &used_materials {
-        if !sim_input.buildup_alias_map.contains_key(mat_name) {
-            miette::bail!(
-                "Material '{}' used in cells is missing from buildup_alias_map",
-                mat_name
-            );
-        }
-    }
-
     let material_map: std::collections::HashMap<String, u32> = used_materials
         .iter()
         .enumerate()

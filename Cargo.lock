@@ -717,6 +717,7 @@ dependencies = [
  "glam",
  "pprof",
  "radia-core",
+ "radia-input",
  "rayon",
  "serde",
  "serde_json",
@@ -730,6 +731,19 @@ dependencies = [
  "criterion",
  "glam",
  "pprof",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "radia-input"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "glam",
+ "pprof",
+ "radia-core",
  "serde",
  "serde_json",
  "thiserror",

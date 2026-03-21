@@ -66,6 +66,7 @@ pub fn generate_cylinder_source(
     sources
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_cuboid_source(
     xmin: f32,
     xmax: f32,

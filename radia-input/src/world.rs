@@ -1,35 +1,23 @@
-use crate::constants::EPSILON;
-use crate::csg::{CSGNode, Cell, World};
-use crate::primitive::Primitive;
 use glam::Vec3A;
+use radia_core::csg::{CSGNode, Cell, World};
+use radia_core::primitive::Primitive;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum WorldConfigError {
-    #[error("Material '{0}' not found")]
-    MaterialNotFound(String),
-    #[error("Primitive '{0}' not found")]
-    PrimitiveNotFound(String),
-    #[error("CSG operation has no primitives")]
-    EmptyCsgOperation,
-    #[error("Unknown CSG operation: {0}")]
-    UnknownCsgOperation(String),
-    #[error("Invalid primitive '{name}': {reason}")]
-    InvalidPrimitive { name: String, reason: String },
-}
+use crate::InputError;
+
+const EPSILON: f32 = 1e-6; // length [cm]
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct WorldConfig {
-    pub primitives: Vec<PrimitiveConfig>,
+pub struct WorldInput {
+    pub primitives: Vec<PrimitiveInput>,
     pub materials: Vec<String>,
-    pub cells: Vec<CellConfig>,
+    pub cells: Vec<CellInput>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
-pub enum PrimitiveConfig {
+pub enum PrimitiveInput {
     #[serde(alias = "SPH")]
     Sphere {
         name: String,
@@ -51,7 +39,7 @@ pub enum PrimitiveConfig {
     },
 }
 
-impl PrimitiveConfig {
+impl PrimitiveInput {
     pub fn name(&self) -> &str {
         match self {
             Self::Sphere { name, .. } => name,
@@ -62,20 +50,20 @@ impl PrimitiveConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct CellConfig {
+pub struct CellInput {
     pub material_name: String,
-    pub csg: CSGConfig,
+    pub csg: CSGInput,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
-pub enum CSGConfig {
-    Operation { op: String, prs: Vec<CSGConfig> },
+pub enum CSGInput {
+    Operation { op: String, prs: Vec<CSGInput> },
     Name(String),
 }
 
-impl WorldConfig {
-    pub fn build(self) -> Result<World, WorldConfigError> {
+impl WorldInput {
+    pub fn build(self) -> Result<World, InputError> {
         let mut used_primitive_names = std::collections::HashSet::new();
         for c_conf in &self.cells {
             collect_used_primitives(&c_conf.csg, &mut used_primitive_names);
@@ -102,9 +90,9 @@ impl WorldConfig {
             primitive_map.insert(name.to_string(), id);
 
             let p = match p_conf {
-                PrimitiveConfig::Sphere { center, radius, .. } => {
+                PrimitiveInput::Sphere { center, radius, .. } => {
                     if radius < 0.0 {
-                        return Err(WorldConfigError::InvalidPrimitive {
+                        return Err(InputError::InvalidPrimitive {
                             name: name.to_string(),
                             reason: format!("radius must be non-negative, got {}", radius),
                         });
@@ -114,9 +102,9 @@ impl WorldConfig {
                         radius2: radius * radius,
                     }
                 }
-                PrimitiveConfig::RectangularParallelPiped { min, max, .. } => {
+                PrimitiveInput::RectangularParallelPiped { min, max, .. } => {
                     if min[0] > max[0] || min[1] > max[1] || min[2] > max[2] {
-                        return Err(WorldConfigError::InvalidPrimitive {
+                        return Err(InputError::InvalidPrimitive {
                             name: name.to_string(),
                             reason: format!(
                                 "min elements must be <= max elements, got min: {:?}, max: {:?}",
@@ -129,14 +117,14 @@ impl WorldConfig {
                         max: Vec3A::from_array(max),
                     }
                 }
-                PrimitiveConfig::FiniteCylinder {
+                PrimitiveInput::FiniteCylinder {
                     center,
                     vector,
                     radius,
                     ..
                 } => {
                     if radius < 0.0 {
-                        return Err(WorldConfigError::InvalidPrimitive {
+                        return Err(InputError::InvalidPrimitive {
                             name: name.to_string(),
                             reason: format!("radius must be non-negative, got {}", radius),
                         });
@@ -144,7 +132,7 @@ impl WorldConfig {
                     let v = Vec3A::from_array(vector);
                     let length = v.length();
                     if length <= EPSILON {
-                        return Err(WorldConfigError::InvalidPrimitive {
+                        return Err(InputError::InvalidPrimitive {
                             name: name.to_string(),
                             reason: format!("Invalid cylinder length: {}", length),
                         });
@@ -164,7 +152,7 @@ impl WorldConfig {
         for c_conf in self.cells {
             let material_id = *material_map
                 .get(&c_conf.material_name)
-                .ok_or_else(|| WorldConfigError::MaterialNotFound(c_conf.material_name.clone()))?;
+                .ok_or_else(|| InputError::MaterialNotFound(c_conf.material_name.clone()))?;
 
             let csg = build_csg_node(&c_conf.csg, &primitive_map)?;
             cells.push(Cell { csg, material_id });
@@ -174,12 +162,12 @@ impl WorldConfig {
     }
 }
 
-fn collect_used_primitives(config: &CSGConfig, used: &mut std::collections::HashSet<String>) {
+fn collect_used_primitives(config: &CSGInput, used: &mut std::collections::HashSet<String>) {
     match config {
-        CSGConfig::Name(name) => {
+        CSGInput::Name(name) => {
             used.insert(name.clone());
         }
-        CSGConfig::Operation { prs, .. } => {
+        CSGInput::Operation { prs, .. } => {
             for p in prs {
                 collect_used_primitives(p, used);
             }
@@ -188,19 +176,19 @@ fn collect_used_primitives(config: &CSGConfig, used: &mut std::collections::Hash
 }
 
 fn build_csg_node(
-    config: &CSGConfig,
+    config: &CSGInput,
     primitive_map: &HashMap<String, usize>,
-) -> Result<CSGNode, WorldConfigError> {
+) -> Result<CSGNode, InputError> {
     match config {
-        CSGConfig::Name(name) => {
+        CSGInput::Name(name) => {
             let id = *primitive_map
                 .get(name)
-                .ok_or_else(|| WorldConfigError::PrimitiveNotFound(name.clone()))?;
+                .ok_or_else(|| InputError::PrimitiveNotFound(name.clone()))?;
             Ok(CSGNode::Primitive(id))
         }
-        CSGConfig::Operation { op, prs } => {
+        CSGInput::Operation { op, prs } => {
             if prs.is_empty() {
-                return Err(WorldConfigError::EmptyCsgOperation);
+                return Err(InputError::EmptyCsgOperation);
             }
             match op.as_str() {
                 "union" | "outer" => {
@@ -233,7 +221,7 @@ fn build_csg_node(
                     }
                     Ok(node)
                 }
-                _ => Err(WorldConfigError::UnknownCsgOperation(op.clone())),
+                _ => Err(InputError::UnknownCsgOperation(op.clone())),
             }
         }
     }
@@ -244,7 +232,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_deserialize_world_config() {
+    fn test_deserialize_world_input() {
         let json = r#"{
             "primitives": [
                 {"name": "unused", "type": "Sphere", "center": [1.0, 1.0, 1.0], "radius": 1.0},
@@ -258,12 +246,12 @@ mod tests {
             ]
         }"#;
 
-        let config: WorldConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.primitives.len(), 3);
-        assert_eq!(config.materials.len(), 2);
-        assert_eq!(config.cells.len(), 2);
+        let input: WorldInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.primitives.len(), 3);
+        assert_eq!(input.materials.len(), 2);
+        assert_eq!(input.cells.len(), 2);
 
-        let world = config.build().unwrap();
+        let world = input.build().unwrap();
         assert_eq!(world.primitives.len(), 2);
         assert_eq!(world.cells.len(), 2);
         assert_eq!(world.cells[0].csg, CSGNode::Primitive(0));
@@ -294,27 +282,27 @@ mod tests {
             ]
         }"#;
 
-        let config: WorldConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.primitives.len(), 5);
-        
-        match &config.primitives[0] {
-            PrimitiveConfig::Sphere { name, .. } => assert_eq!(name, "s"),
+        let input: WorldInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.primitives.len(), 5);
+
+        match &input.primitives[0] {
+            PrimitiveInput::Sphere { name, .. } => assert_eq!(name, "s"),
             _ => panic!("Expected Sphere"),
         }
-        match &config.primitives[1] {
-            PrimitiveConfig::RectangularParallelPiped { name, .. } => assert_eq!(name, "r1"),
+        match &input.primitives[1] {
+            PrimitiveInput::RectangularParallelPiped { name, .. } => assert_eq!(name, "r1"),
             _ => panic!("Expected RectangularParallelPiped"),
         }
-        match &config.primitives[2] {
-            PrimitiveConfig::RectangularParallelPiped { name, .. } => assert_eq!(name, "r2"),
+        match &input.primitives[2] {
+            PrimitiveInput::RectangularParallelPiped { name, .. } => assert_eq!(name, "r2"),
             _ => panic!("Expected RectangularParallelPiped"),
         }
-        match &config.primitives[3] {
-            PrimitiveConfig::RectangularParallelPiped { name, .. } => assert_eq!(name, "r3"),
+        match &input.primitives[3] {
+            PrimitiveInput::RectangularParallelPiped { name, .. } => assert_eq!(name, "r3"),
             _ => panic!("Expected RectangularParallelPiped"),
         }
-        match &config.primitives[4] {
-            PrimitiveConfig::FiniteCylinder { name, .. } => assert_eq!(name, "c"),
+        match &input.primitives[4] {
+            PrimitiveInput::FiniteCylinder { name, .. } => assert_eq!(name, "c"),
             _ => panic!("Expected FiniteCylinder"),
         }
     }

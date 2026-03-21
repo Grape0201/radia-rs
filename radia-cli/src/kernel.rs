@@ -49,6 +49,7 @@ pub fn select_buildup_material(segment_ots: &[(u32, f32)]) -> MaterialIndex {
         i -= 1;
     }
 
+    #[allow(clippy::collapsible_if)]
     if let Some(pmid) = prev_mat_id {
         if prev_layer_ot > last_layer_ot {
             return pmid as MaterialIndex;
@@ -70,6 +71,7 @@ pub fn select_buildup_material(segment_ots: &[(u32, f32)]) -> MaterialIndex {
 ///   per energy group.
 /// * `detector_position` - The 3D coordinates `Vec3A` of the detector.
 /// * `sources` - A slice of `PointSource` instances to integrate over.
+#[allow(clippy::needless_range_loop)]
 pub fn calculate_dose_rate<F, B>(
     get_mu: &F,
     get_buildup: &B,
@@ -130,7 +132,11 @@ where
             // 2. Determine the buildup material ID for this Ray and Energy Group using refined logic.
             let buildup_material_id = select_buildup_material(&segment_ots_buffer);
 
-            let buildup = get_buildup(buildup_material_id, i as GroupIndex, total_optical_thickness);
+            let buildup = get_buildup(
+                buildup_material_id,
+                i as GroupIndex,
+                total_optical_thickness,
+            );
             let material_attenuation = (-total_optical_thickness).exp();
 
             // flux to dose conversion

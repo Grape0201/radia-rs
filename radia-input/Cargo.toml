@@ -1,21 +1,15 @@
 [package]
-name = "radia-cli"
+name = "radia-input"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 radia-core = { path = "../radia-core" }
-radia-input = { path = "../radia-input" }
 glam.workspace = true
-rayon = "1.11.0"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
-[[bench]]
-name = "kernel_benchmark"
-harness = false
-
 [dev-dependencies]
-criterion = "0.5.1"
-pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
+criterion.workspace = true
+pprof.workspace = true

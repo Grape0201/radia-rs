@@ -146,6 +146,12 @@ pub struct MaterialRegistry {
     compositions: HashMap<String, MaterialDef>,
 }
 
+impl Default for MaterialRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MaterialRegistry {
     /// Creates a new empty material registry.
     pub fn new() -> Self {

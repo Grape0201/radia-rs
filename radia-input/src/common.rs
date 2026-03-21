@@ -24,15 +24,17 @@ impl garde::Validate for MinMaxBounds {
         parent: &mut dyn FnMut() -> garde::Path,
         report: &mut garde::Report,
     ) {
-        if self.min[0] >= self.max[0] || self.min[1] >= self.max[1] || self.min[2] >= self.max[2] {
-            report.append(
-                parent(),
-                garde::Error::new(format!(
-                    "min bounds must be strictly less than max bounds. \
-                     min: {:?}, max: {:?}",
-                    self.min, self.max
-                )),
-            );
+        let coords = ["X", "Y", "Z"];
+        for (i, coord) in coords.iter().enumerate() {
+            if self.min[i] >= self.max[i] {
+                report.append(
+                    parent(),
+                    garde::Error::new(format!(
+                        "min bounds must be strictly less than max bounds. min: {:?}, max: {:?} for coordinate {}",
+                        self.min, self.max, coord
+                    )),
+                );
+            }
         }
     }
 }

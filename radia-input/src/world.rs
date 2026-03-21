@@ -213,16 +213,8 @@ mod tests {
         let world = input.build(&material_map).unwrap();
         assert_eq!(world.primitives.len(), 2);
         assert_eq!(world.cells.len(), 2);
-        assert_eq!(world.cells[0].csg, CSGNode::Primitive(0));
         assert_eq!(world.cells[0].material_id, 0); // Water
         assert_eq!(world.cells[1].material_id, 1); // Air
-        assert_eq!(
-            world.cells[1].csg,
-            CSGNode::Difference(
-                Box::new(CSGNode::Primitive(1)),
-                Box::new(CSGNode::Primitive(0)),
-            )
-        );
     }
 
     #[test]

@@ -18,8 +18,17 @@ fn main() -> Result<()> {
 
     let sim_input = SimulationInput::from_yaml_file(input_path).into_diagnostic()?;
 
-    let mut used_materials: Vec<String> = sim_input
-        .world
+    let SimulationInput {
+        world,
+        materials,
+        buildup_params,
+        buildup_alias_map,
+        detectors,
+        conversion_factors,
+        source,
+    } = sim_input;
+
+    let mut used_materials: Vec<String> = world
         .cells
         .iter()
         .map(|c| c.material_name.clone())
@@ -34,29 +43,28 @@ fn main() -> Result<()> {
         .collect();
 
     println!("Building world...");
-    let world = sim_input.world.build(&material_map).into_diagnostic()?;
+    let world = world.build(&material_map).into_diagnostic()?;
 
     println!("Building materials...");
     let mut registry = match load_material_registry_from_file("data/elements.json") {
         Ok(r) => r,
         Err(_) => MaterialRegistry::new(),
     };
-    for (name, mat_input) in sim_input.materials {
+    for (name, mat_input) in materials {
         let def = mat_input.build(&name).into_diagnostic()?;
         registry.insert(name, def);
     }
 
     println!("Building buildup parameters...");
     let mut gp_provider = GPBuildupProvider::new();
-    for buildup_input in sim_input.buildup_params {
-        let (name, params) = buildup_input.build();
-        gp_provider.insert_data(name, params);
+    for (name, params) in buildup_params {
+        gp_provider.insert_data(name, params.into_iter().map(|p| p.into()).collect());
     }
 
-    let mut detectors = Vec::new();
-    for det_input in sim_input.detectors {
+    let mut detectors_ = Vec::new();
+    for det_input in detectors {
         let (name, pos) = det_input.build();
-        detectors.push((name, pos));
+        detectors_.push((name, pos));
     }
 
     println!("Loading physical datatables...");
@@ -69,14 +77,14 @@ fn main() -> Result<()> {
     println!("Calculating dose rates...");
     let mut detector_doses = std::collections::HashMap::new();
 
-    let energy_groups = sim_input.source.energy_groups;
-    let intensity_by_group = sim_input.source.intensity_by_group;
-    let srcs = sim_input.source.shape.build();
+    let energy_groups = source.energy_groups;
+    let intensity_by_group = source.intensity_by_group;
+    let srcs = source.shape.build();
 
     println!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(
         &used_materials,
-        &sim_input.buildup_alias_map,
+        &buildup_alias_map,
         &registry,
         &energy_groups,
         &provider,
@@ -86,13 +94,13 @@ fn main() -> Result<()> {
 
     let (get_mu, get_buildup) = physics_table.into_closures();
 
-    for (name, pos) in &detectors {
+    for (name, pos) in &detectors_ {
         let chunk_size = 1000;
         let dose_rate = calculate_dose_rate_parallel(
             &get_mu,
             &get_buildup,
             &world,
-            &sim_input.conversion_factors,
+            &conversion_factors,
             &intensity_by_group,
             *pos,
             &srcs,
@@ -101,7 +109,7 @@ fn main() -> Result<()> {
         *detector_doses.entry(name.clone()).or_insert(0.0) += dose_rate;
     }
 
-    for (name, pos) in detectors {
+    for (name, pos) in detectors_ {
         let dose_rate = detector_doses.get(&name).unwrap_or(&0.0);
         println!(
             "Detector '{}' at {:?}: Dose Rate = {:.6e}",

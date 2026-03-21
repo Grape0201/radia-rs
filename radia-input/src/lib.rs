@@ -46,7 +46,7 @@ pub struct SimulationInput {
     #[garde(dive)]
     pub materials: HashMap<String, material::MaterialInput>,
     #[garde(dive)]
-    pub buildup_params: Vec<buildup::BuildupInput>,
+    pub buildup_params: HashMap<String, Vec<buildup::GPParamsInput>>,
     #[garde(length(min = 1))]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
     #[garde(length(min = 1), dive)]
@@ -72,16 +72,6 @@ impl SimulationInput {
     }
 
     pub fn validate(&self) -> Result<(), InputError> {
-        let mut buildup_names = std::collections::HashSet::new();
-        for bp in &self.buildup_params {
-            if !buildup_names.insert(&bp.material_name) {
-                return Err(InputError::ValidationError(format!(
-                    "Duplicate buildup parameters definition for material: '{}'",
-                    bp.material_name
-                )));
-            }
-        }
-
         let mut det_names = std::collections::HashSet::new();
         for det in &self.detectors {
             let name = &det.name;

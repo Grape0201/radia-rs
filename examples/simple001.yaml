@@ -29,22 +29,20 @@ materials:
       26: 1.0
 
 buildup_params:
-  - material_name: "WaterGP"
-    params:
-      - energy_mev: 1.0
-        a: 0.1
-        b: 2.0
-        c: 0.5
-        d: 0.05
-        xk: 14.0
-  - material_name: "IronGP"
-    params:
-      - energy_mev: 1.0
-        a: 0.15
-        b: 1.5
-        c: 0.6
-        d: 0.04
-        xk: 13.0
+  WaterGP:
+    - energy_mev: 1.0
+      a: 0.1
+      b: 2.0
+      c: 0.5
+      d: 0.05
+      xk: 14.0
+  IronGP:
+    - energy_mev: 1.0
+      a: 0.15
+      b: 1.5
+      c: 0.6
+      d: 0.04
+      xk: 13.0
 
 buildup_alias_map:
   "Water": "WaterGP"

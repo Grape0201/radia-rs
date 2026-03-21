@@ -17,11 +17,38 @@ fn main() -> Result<()> {
 
     let sim_input = SimulationInput::from_yaml_file(input_path).into_diagnostic()?;
 
+    let mut used_materials: Vec<String> = sim_input
+        .world
+        .cells
+        .iter()
+        .map(|c| c.material_name.clone())
+        .collect();
+    used_materials.sort();
+    used_materials.dedup();
+
+    for mat_name in &used_materials {
+        if !sim_input.buildup_alias_map.contains_key(mat_name) {
+            miette::bail!(
+                "Material '{}' used in cells is missing from buildup_alias_map",
+                mat_name
+            );
+        }
+    }
+
+    let material_map: std::collections::HashMap<String, u32> = used_materials
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.clone(), i as u32))
+        .collect();
+
     println!("Building world...");
-    let world = sim_input.world.build().into_diagnostic()?;
+    let world = sim_input.world.build(&material_map).into_diagnostic()?;
 
     println!("Building materials...");
-    let mut registry = MaterialRegistry::new();
+    let mut registry = match MaterialRegistry::from_file("data/elements.json") {
+        Ok(r) => r,
+        Err(_) => MaterialRegistry::new(),
+    };
     for mat_input in sim_input.materials {
         let (name, def) = mat_input.build().into_diagnostic()?;
         registry.insert(name, def);
@@ -60,6 +87,7 @@ fn main() -> Result<()> {
 
     println!("Generating material physics table...");
     let physics_table = MaterialPhysicsTable::generate(
+        &used_materials,
         &sim_input.buildup_alias_map,
         &registry,
         &energy_groups,

@@ -34,7 +34,8 @@ fn generate_test_environment() -> (
     registry.insert("Water".to_string(), water);
     registry.insert("Iron".to_string(), iron);
 
-    let material_names = HashMap::from([
+    let material_names = Vec::from(["Water".to_string(), "Iron".to_string()]);
+    let buildup_alias_map = HashMap::from([
         ("Water".to_string(), "DummyMaterial".to_string()),
         ("Iron".to_string(), "DummyMaterial".to_string()),
     ]);
@@ -72,6 +73,7 @@ fn generate_test_environment() -> (
 
     let physics_table = radia_core::physics::MaterialPhysicsTable::generate(
         &material_names,
+        &buildup_alias_map,
         &registry,
         &energy_groups,
         &DummyProvider,

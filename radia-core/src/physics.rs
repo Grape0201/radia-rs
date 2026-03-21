@@ -131,7 +131,8 @@ impl MaterialPhysicsTable {
     /// Generates a physics table by pre-calculating linear attenuation coefficients
     /// and buildup models for the given materials and energy groups.
     pub fn generate(
-        material_names: &HashMap<String, String>, // key: name, value: buildup source name
+        material_names: &[String],
+        buildup_alias_map: &HashMap<String, String>,
         registry: &MaterialRegistry,
         energy_groups: &[f32],
         mu_provider: &impl MassAttenuationProvider,
@@ -143,7 +144,11 @@ impl MaterialPhysicsTable {
         let mut mu_data = Vec::with_capacity(num_materials * num_groups);
         let mut buildup_models = Vec::with_capacity(num_materials * num_groups);
 
-        for (name, buildup_source) in material_names {
+        for name in material_names {
+            let buildup_source = buildup_alias_map
+                .get(name)
+                .ok_or_else(|| BuildupError::MaterialNotFound(name.clone()))?;
+
             let mat = registry
                 .get_material(name)
                 .ok_or_else(|| MaterialPhysicsError::MaterialDataNotInRegistry(name.into()))?;
@@ -442,11 +447,14 @@ mod tests {
         let dummy_mat = MaterialDef::new(dummy_composition, 1.0);
         registry.insert("DummyMaterial".to_string(), dummy_mat);
 
-        let mat_names = HashMap::from([("DummyMaterial".to_string(), "DummyMaterial".to_string())]);
+        let mat_names = vec!["DummyMaterial".to_string()];
+        let buildup_alias_map =
+            HashMap::from([("DummyMaterial".to_string(), "DummyMaterial".to_string())]);
 
         let mu_provider = crate::material::DummyProvider;
         let table = MaterialPhysicsTable::generate(
             &mat_names,
+            &buildup_alias_map,
             &registry,
             &[1.0, 2.0],
             &mu_provider,

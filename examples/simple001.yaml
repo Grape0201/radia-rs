@@ -8,9 +8,6 @@ world:
       type: "RectangularParallelPiped"
       min: [-5.0, -5.0, -5.0]
       max: [5.0, 5.0, 5.0]
-  materials:
-    - "Water"
-    - "Iron"
   cells:
     - material_name: "Water"
       csg: "source_sphere"

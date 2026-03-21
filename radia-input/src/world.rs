@@ -11,7 +11,6 @@ const EPSILON: f32 = 1e-6; // length [cm]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorldInput {
     pub primitives: Vec<PrimitiveInput>,
-    pub materials: Vec<String>,
     pub cells: Vec<CellInput>,
 }
 
@@ -63,18 +62,11 @@ pub enum CSGInput {
 }
 
 impl WorldInput {
-    pub fn build(self) -> Result<World, InputError> {
+    pub fn build(self, material_map: &HashMap<String, u32>) -> Result<World, InputError> {
         let mut used_primitive_names = std::collections::HashSet::new();
         for c_conf in &self.cells {
             collect_used_primitives(&c_conf.csg, &mut used_primitive_names);
         }
-
-        let material_map: HashMap<String, u32> = self
-            .materials
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (name.clone(), i as u32))
-            .collect();
 
         let mut primitive_map = HashMap::new();
         let mut primitives = Vec::new();
@@ -239,7 +231,6 @@ mod tests {
                 {"name": "source", "type": "Sphere", "center": [0.0, 0.0, 0.0], "radius": 2.0},
                 {"name": "whole_world", "type": "RectangularParallelPiped", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}
             ],
-            "materials": ["Water", "Air"],
             "cells": [
                 {"material_name": "Water", "csg": {"op": "inner", "prs": ["source"]}},
                 {"material_name": "Air", "csg": {"op": "difference", "prs": ["whole_world", "source"]}}
@@ -248,10 +239,13 @@ mod tests {
 
         let input: WorldInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.primitives.len(), 3);
-        assert_eq!(input.materials.len(), 2);
         assert_eq!(input.cells.len(), 2);
 
-        let world = input.build().unwrap();
+        let mut material_map = HashMap::new();
+        material_map.insert("Water".to_string(), 0);
+        material_map.insert("Air".to_string(), 1);
+
+        let world = input.build(&material_map).unwrap();
         assert_eq!(world.primitives.len(), 2);
         assert_eq!(world.cells.len(), 2);
         assert_eq!(world.cells[0].csg, CSGNode::Primitive(0));
@@ -276,7 +270,6 @@ mod tests {
                 {"name": "r3", "type": "AABB", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
                 {"name": "c", "type": "CYL", "center": [0.0, 0.0, 0.0], "vector": [0.0, 0.0, 1.0], "radius": 0.5}
             ],
-            "materials": ["Water"],
             "cells": [
                 {"material_name": "Water", "csg": "s"}
             ]

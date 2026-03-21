@@ -68,38 +68,36 @@ fn main() -> Result<()> {
     println!("Calculating dose rates...");
     let mut detector_doses = std::collections::HashMap::new();
 
-    for src_input in sim_input.sources {
-        let energy_groups = src_input.energy_groups;
-        let intensity_by_group = src_input.intensity_by_group;
-        let srcs = src_input.shape.build().into_diagnostic()?;
+    let energy_groups = sim_input.source.energy_groups;
+    let intensity_by_group = sim_input.source.intensity_by_group;
+    let srcs = sim_input.source.shape.build().into_diagnostic()?;
 
-        println!("Generating material physics table for a source...");
-        let physics_table = MaterialPhysicsTable::generate(
-            &used_materials,
-            &sim_input.buildup_alias_map,
-            &registry,
-            &energy_groups,
-            &provider,
-            &gp_provider,
-        )
-        .into_diagnostic()?;
+    println!("Generating material physics table for a source...");
+    let physics_table = MaterialPhysicsTable::generate(
+        &used_materials,
+        &sim_input.buildup_alias_map,
+        &registry,
+        &energy_groups,
+        &provider,
+        &gp_provider,
+    )
+    .into_diagnostic()?;
 
-        let (get_mu, get_buildup) = physics_table.into_closures();
+    let (get_mu, get_buildup) = physics_table.into_closures();
 
-        for (name, pos) in &detectors {
-            let chunk_size = 1000;
-            let dose_rate = calculate_dose_rate_parallel(
-                &get_mu,
-                &get_buildup,
-                &world,
-                &sim_input.conversion_factors,
-                &intensity_by_group,
-                *pos,
-                &srcs,
-                chunk_size,
-            );
-            *detector_doses.entry(name.clone()).or_insert(0.0) += dose_rate;
-        }
+    for (name, pos) in &detectors {
+        let chunk_size = 1000;
+        let dose_rate = calculate_dose_rate_parallel(
+            &get_mu,
+            &get_buildup,
+            &world,
+            &sim_input.conversion_factors,
+            &intensity_by_group,
+            *pos,
+            &srcs,
+            chunk_size,
+        );
+        *detector_doses.entry(name.clone()).or_insert(0.0) += dose_rate;
     }
 
     for (name, pos) in detectors {

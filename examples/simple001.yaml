@@ -50,12 +50,12 @@ buildup_alias_map:
   "Water": "WaterGP"
   "Iron": "IronGP"
 
-sources:
-  - type: "Point"
-    position: [0.0, 0.0, 0.0]
-    intensity: 1000.0
-    energy_groups: [1.0]
-    intensity_by_group: [1.0]
+source:
+  type: "Point"
+  position: [0.0, 0.0, 0.0]
+  intensity: 1000.0
+  energy_groups: [1.0]
+  intensity_by_group: [1.0]
 
 conversion_factors: [1.0]
 

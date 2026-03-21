@@ -7,7 +7,7 @@ pub mod world;
 use std::path::Path;
 
 use miette::{Diagnostic, NamedSource, SourceSpan};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 
 #[derive(Error, Diagnostic, Debug)]
@@ -43,21 +43,15 @@ pub enum InputError {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct SimulationInput {
     pub world: world::WorldInput,
-    #[serde(default)]
     pub materials: Vec<material::MaterialInput>,
-    #[serde(default)]
     pub buildup_params: Vec<buildup::BuildupInput>,
-    #[serde(default)]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
-    #[serde(default)]
     pub detectors: Vec<detector::DetectorInput>,
-    #[serde(default)]
     pub conversion_factors: Vec<f32>,
-    #[serde(default)]
-    pub sources: Vec<source::SourceInput>,
+    pub source: source::SourceInput,
 }
 
 impl SimulationInput {
@@ -76,31 +70,36 @@ impl SimulationInput {
                 span,
             }
         })?;
-        
+
         input.validate()?;
-        
+
         Ok(input)
     }
 
     pub fn validate(&self) -> Result<(), InputError> {
-        if self.sources.is_empty() {
-            return Err(InputError::ValidationError("At least one source must be defined".to_string()));
-        }
         if self.detectors.is_empty() {
-            return Err(InputError::ValidationError("At least one detector must be defined".to_string()));
+            return Err(InputError::ValidationError(
+                "At least one detector must be defined".to_string(),
+            ));
         }
 
         let mut mat_names = std::collections::HashSet::new();
         for mat in &self.materials {
             if !mat_names.insert(&mat.name) {
-                return Err(InputError::ValidationError(format!("Duplicate material definition: '{}'", mat.name)));
+                return Err(InputError::ValidationError(format!(
+                    "Duplicate material definition: '{}'",
+                    mat.name
+                )));
             }
         }
 
         let mut buildup_names = std::collections::HashSet::new();
         for bp in &self.buildup_params {
             if !buildup_names.insert(&bp.material_name) {
-                return Err(InputError::ValidationError(format!("Duplicate buildup parameters definition for material: '{}'", bp.material_name)));
+                return Err(InputError::ValidationError(format!(
+                    "Duplicate buildup parameters definition for material: '{}'",
+                    bp.material_name
+                )));
             }
         }
 
@@ -108,7 +107,10 @@ impl SimulationInput {
         for det in &self.detectors {
             let name = &det.name;
             if !det_names.insert(name.clone()) {
-                return Err(InputError::ValidationError(format!("Duplicate detector definition: '{}'", name)));
+                return Err(InputError::ValidationError(format!(
+                    "Duplicate detector definition: '{}'",
+                    name
+                )));
             }
         }
 
@@ -121,25 +123,27 @@ impl SimulationInput {
             }
         }
 
-        for src in &self.sources {
-            if src.energy_groups.is_empty() {
-                return Err(InputError::InvalidSource("energy_groups cannot be empty".to_string()));
-            }
-            if src.energy_groups.len() != src.intensity_by_group.len() {
-                return Err(InputError::InvalidSource(
-                    "energy_groups length and intensity_by_group length must match".to_string()
-                ));
-            }
-            if src.intensity_by_group.iter().any(|&i| i < 0.0) {
-                return Err(InputError::InvalidSource(
-                    "intensity_by_group elements cannot be negative".to_string()
-                ));
-            }
-            if !self.conversion_factors.is_empty() && self.conversion_factors.len() != src.energy_groups.len() {
-                return Err(InputError::ValidationError(
-                    "conversion_factors length must match sources energy_groups length".to_string()
-                ));
-            }
+        if self.source.energy_groups.is_empty() {
+            return Err(InputError::InvalidSource(
+                "energy_groups cannot be empty".to_string(),
+            ));
+        }
+        if self.source.energy_groups.len() != self.source.intensity_by_group.len() {
+            return Err(InputError::InvalidSource(
+                "energy_groups length and intensity_by_group length must match".to_string(),
+            ));
+        }
+        if self.source.intensity_by_group.iter().any(|&i| i < 0.0) {
+            return Err(InputError::InvalidSource(
+                "intensity_by_group elements cannot be negative".to_string(),
+            ));
+        }
+        if !self.conversion_factors.is_empty()
+            && self.conversion_factors.len() != self.source.energy_groups.len()
+        {
+            return Err(InputError::ValidationError(
+                "conversion_factors length must match sources energy_groups length".to_string(),
+            ));
         }
 
         Ok(())

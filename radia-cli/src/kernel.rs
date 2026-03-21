@@ -71,12 +71,12 @@ pub fn select_buildup_material(segment_ots: &[(u32, f32)]) -> MaterialIndex {
 ///   per energy group.
 /// * `detector_position` - The 3D coordinates `Vec3A` of the detector.
 /// * `sources` - A slice of `PointSource` instances to integrate over.
-#[allow(clippy::needless_range_loop)]
 pub fn calculate_dose_rate<F, B>(
     get_mu: &F,
     get_buildup: &B,
     world: &World,
     conversion_factors: &[f32],
+    intensity_by_group: &[f32],
     detector_position: Vec3A,
     sources: &[PointSource],
 ) -> f32
@@ -118,13 +118,13 @@ where
         let mut source_dose = 0.0;
 
         // Loop over energy division
-        for i in 0..num_groups {
+        for ig in 0..num_groups {
             let mut total_optical_thickness = 0.0;
             segment_ots_buffer.clear();
 
             // 1. Calculate optical thickness for each segment and total
             for &(mat_id, length) in &segments_buffer {
-                let ot = get_mu(mat_id as MaterialIndex, i as GroupIndex) * length;
+                let ot = get_mu(mat_id as MaterialIndex, ig as GroupIndex) * length;
                 total_optical_thickness += ot;
                 segment_ots_buffer.push((mat_id, ot));
             }
@@ -134,13 +134,14 @@ where
 
             let buildup = get_buildup(
                 buildup_material_id,
-                i as GroupIndex,
+                ig as GroupIndex,
                 total_optical_thickness,
             );
             let material_attenuation = (-total_optical_thickness).exp();
 
             // flux to dose conversion
-            source_dose += conversion_factors[i] * buildup * material_attenuation;
+            source_dose +=
+                conversion_factors[ig] * buildup * material_attenuation * intensity_by_group[ig];
         }
 
         total_dose += source.intensity * geometric_attenuation * source_dose;
@@ -154,6 +155,7 @@ pub fn calculate_dose_rate_parallel<F, B>(
     get_buildup: &B,
     world: &World,
     conversion_factors: &[f32],
+    intensity_by_group: &[f32],
     detector_position: Vec3A,
     sources: &[PointSource],
     chunk_size: usize,
@@ -170,6 +172,7 @@ where
                 get_buildup,
                 world,
                 conversion_factors,
+                intensity_by_group,
                 detector_position,
                 source_chunk,
             )
@@ -202,12 +205,14 @@ mod tests {
         let get_buildup = |_, _, _| 1.0;
 
         let conversion_factors = vec![1.0];
+        let intensity_by_group = vec![1.0];
 
         let dose = calculate_dose_rate(
             &get_mu,
             &get_buildup,
             &world,
             &conversion_factors,
+            &intensity_by_group,
             detector,
             &[source],
         );
@@ -256,6 +261,7 @@ mod tests {
         let get_mu = |mat_id, _| if mat_id == 0 { 1.0 } else { 1.0 };
         let get_buildup = |mat_id, _, ot: f32| 1.0 + (mat_id as f32) + ot;
         let conversion_factors = vec![1.0];
+        let intensity_by_group = vec![1.0];
 
         let world = World {
             primitives: vec![
@@ -285,6 +291,7 @@ mod tests {
             &get_buildup,
             &world,
             &conversion_factors,
+            &intensity_by_group,
             detector,
             &[source],
         );

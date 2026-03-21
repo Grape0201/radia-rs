@@ -19,6 +19,7 @@ fn generate_test_environment() -> (
     radia_core::physics::MaterialPhysicsTable,
     Vec<PointSource>,
     Vec<f32>,
+    Vec<f32>,
 ) {
     // 1. Setup Materials (Water and Iron)
     let mut water_composition = HashMap::new();
@@ -121,14 +122,15 @@ fn generate_test_environment() -> (
     // 4. Setup Sources (e.g. 1000 points arranged in a grid inside the core)
     let sources = generate_sphere_source(Vec3A::ZERO, 9.0, 10, 10, 10, 1.0);
 
-    // 5. Setup Conversion Factors
+    // 5. Setup Conversion Factors and Intensity
     let conversion_factors = vec![1.0; energy_groups.len()];
+    let intensity_by_group = vec![1.0 / energy_groups.len() as f32; energy_groups.len()];
 
-    (world, physics_table, sources, conversion_factors)
+    (world, physics_table, sources, conversion_factors, intensity_by_group)
 }
 
 fn benchmark_single(c: &mut Criterion) {
-    let (world, physics_table, sources, conversion_factors) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors, intensity_by_group) = generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
 
     // We bind the closures outside of the loop to measure inner calculation speed
@@ -141,6 +143,7 @@ fn benchmark_single(c: &mut Criterion) {
                 black_box(&get_buildup),
                 black_box(&world),
                 black_box(&conversion_factors),
+                black_box(&intensity_by_group),
                 black_box(detector_position),
                 black_box(&sources),
             )
@@ -149,7 +152,7 @@ fn benchmark_single(c: &mut Criterion) {
 }
 
 fn benchmark_parallel(c: &mut Criterion) {
-    let (world, physics_table, sources, conversion_factors) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors, intensity_by_group) = generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
     let (get_mu, get_buildup) = physics_table.into_closures();
 
@@ -164,6 +167,7 @@ fn benchmark_parallel(c: &mut Criterion) {
                     black_box(&get_buildup),
                     &world,
                     &conversion_factors,
+                    &intensity_by_group,
                     detector_position,
                     &sources,
                     s,

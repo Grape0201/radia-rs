@@ -84,6 +84,7 @@ fn main() -> Result<()> {
     // Default energy groups for now
     let energy_groups = vec![1.0];
     let conversion_factors = vec![1.0];
+    let intensity_by_group = vec![1.0];
 
     println!("Generating material physics table...");
     let physics_table = MaterialPhysicsTable::generate(
@@ -106,6 +107,7 @@ fn main() -> Result<()> {
             &get_buildup,
             &world,
             &conversion_factors,
+            &intensity_by_group,
             pos,
             &sources,
             chunk_size,

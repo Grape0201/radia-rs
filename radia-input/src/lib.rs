@@ -5,6 +5,7 @@ pub mod material;
 pub mod source;
 pub mod world;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use garde::Validate;
@@ -43,7 +44,7 @@ pub struct SimulationInput {
     #[garde(dive)]
     pub world: world::WorldInput,
     #[garde(dive)]
-    pub materials: Vec<material::MaterialInput>,
+    pub materials: HashMap<String, material::MaterialInput>,
     #[garde(dive)]
     pub buildup_params: Vec<buildup::BuildupInput>,
     #[garde(length(min = 1))]
@@ -71,16 +72,6 @@ impl SimulationInput {
     }
 
     pub fn validate(&self) -> Result<(), InputError> {
-        let mut mat_names = std::collections::HashSet::new();
-        for mat in &self.materials {
-            if !mat_names.insert(&mat.name) {
-                return Err(InputError::ValidationError(format!(
-                    "Duplicate material definition: '{}'",
-                    mat.name
-                )));
-            }
-        }
-
         let mut buildup_names = std::collections::HashSet::new();
         for bp in &self.buildup_params {
             if !buildup_names.insert(&bp.material_name) {

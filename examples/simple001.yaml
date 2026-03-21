@@ -18,12 +18,12 @@ world:
           - "shield_box"
           - "source_sphere"
 materials:
-  - name: "Water"
+  Water:
     density: 1.0
     composition:
       1: 0.112
       8: 0.888
-  - name: "Iron"
+  Iron:
     density: 7.87
     composition:
       26: 1.0

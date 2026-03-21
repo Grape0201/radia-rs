@@ -41,8 +41,8 @@ fn main() -> Result<()> {
         Ok(r) => r,
         Err(_) => MaterialRegistry::new(),
     };
-    for mat_input in sim_input.materials {
-        let (name, def) = mat_input.build().into_diagnostic()?;
+    for (name, mat_input) in sim_input.materials {
+        let def = mat_input.build(&name).into_diagnostic()?;
         registry.insert(name, def);
     }
 

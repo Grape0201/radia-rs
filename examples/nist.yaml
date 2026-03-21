@@ -1,0 +1,51 @@
+world:
+  primitives:
+    source_sphere:
+      type: "Sphere"
+      center: [0.0, 0.0, 0.0]
+      radius: 2.0
+    shield_box:
+      type: "RectangularParallelPiped"
+      min: [-5.0, -5.0, -5.0]
+      max: [5.0, 5.0, 5.0]
+  cells:
+    - material_name: "Water, Liquid"  # material name in the registry from NIST
+      csg: "source_sphere"
+    - material_name: "Concrete, Ordinary"  # material name in the registry from NIST
+      csg:
+        op: "difference"
+        prs:
+          - "shield_box"
+          - "source_sphere"
+materials:
+buildup_params:
+  WaterGP:
+    - energy_mev: 1.0
+      a: 0.1
+      b: 2.0
+      c: 0.5
+      d: 0.05
+      xk: 14.0
+    - energy_mev: 2.0
+      a: 0.15
+      b: 1.5
+      c: 0.6
+      d: 0.04
+      xk: 13.0
+
+buildup_alias_map:
+  "Water, Liquid": "WaterGP"
+  "Concrete, Ordinary": "WaterGP"
+
+source:
+  type: "Point"
+  position: [0.0, 0.0, 0.0]
+  intensity: 1000.0
+  energy_groups: [11.0, 2.0]
+  intensity_by_group: [1.0, 1.0]
+
+conversion_factors: [1.0, 2.0]
+
+detectors:
+  Det1: [10.0, 0.0, 0.0]
+  Det2: [20.0, 0.0, 0.0]

@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     let world = world.build(&material_map).into_diagnostic()?;
 
     println!("Building materials...");
-    let mut registry = match load_material_registry_from_file("data/elements.json") {
+    let mut registry = match load_material_registry_from_file("data/compositions.json") {
         Ok(r) => r,
         Err(_) => MaterialRegistry::new(),
     };

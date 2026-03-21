@@ -1,4 +1,5 @@
 pub mod buildup;
+mod common;
 pub mod detector;
 pub mod material;
 pub mod source;
@@ -6,7 +7,8 @@ pub mod world;
 
 use std::path::Path;
 
-use miette::{Diagnostic, NamedSource, SourceSpan};
+use garde::Validate;
+use miette::Diagnostic;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -33,24 +35,24 @@ pub enum InputError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("YAML error: {message}")]
-    #[diagnostic(code(radia_input::yaml_error))]
-    Yaml {
-        message: String,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("here")]
-        span: Option<SourceSpan>,
-    },
+    Yaml { message: String },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Validate)]
 pub struct SimulationInput {
+    #[garde(dive)]
     pub world: world::WorldInput,
+    #[garde(dive)]
     pub materials: Vec<material::MaterialInput>,
+    #[garde(dive)]
     pub buildup_params: Vec<buildup::BuildupInput>,
+    #[garde(length(min = 1))]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
+    #[garde(dive)]
     pub detectors: Vec<detector::DetectorInput>,
+    #[garde(skip)]
     pub conversion_factors: Vec<f32>,
+    #[garde(dive)]
     pub source: source::SourceInput,
 }
 
@@ -58,19 +60,11 @@ impl SimulationInput {
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, InputError> {
         let path_ref = path.as_ref();
         let yaml_str = std::fs::read_to_string(path_ref).map_err(InputError::Io)?;
-        let filename = path_ref.to_string_lossy().into_owned();
 
-        let input: SimulationInput = serde_yaml::from_str(&yaml_str).map_err(|e| {
-            let span = e
-                .location()
-                .map(|loc| SourceSpan::new(loc.index().into(), 0));
-            InputError::Yaml {
+        let input: SimulationInput =
+            serde_saphyr::from_str_valid(&yaml_str).map_err(|e| InputError::Yaml {
                 message: e.to_string(),
-                src: NamedSource::new(filename, yaml_str),
-                span,
-            }
-        })?;
-
+            })?;
         input.validate()?;
 
         Ok(input)

@@ -1,44 +1,28 @@
+use garde::Validate;
 use radia_core::material::MaterialDef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::InputError;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct MaterialInput {
+    #[garde(length(min = 2))]
     pub name: String,
+    #[garde(range(min = 0.0))]
     pub density: f32,
+    #[garde(skip)]
     pub composition: HashMap<u32, f32>,
 }
 
 impl MaterialInput {
     pub fn build(self) -> Result<(String, MaterialDef), InputError> {
-        if self.density <= 0.0 {
-            return Err(InputError::InvalidMaterial {
-                name: self.name,
-                reason: format!("Density must be strictly positive, got {}", self.density),
-            });
-        }
-
-        if self.composition.is_empty() {
-            return Err(InputError::InvalidMaterial {
-                name: self.name,
-                reason: "Composition cannot be empty".to_string(),
-            });
-        }
-
         let mut sum = 0.0;
         for (&z, &f) in &self.composition {
             if z == 0 || z > 118 {
                 return Err(InputError::InvalidMaterial {
                     name: self.name.clone(),
                     reason: format!("Invalid atomic number {}", z),
-                });
-            }
-            if f <= 0.0 {
-                return Err(InputError::InvalidMaterial {
-                    name: self.name.clone(),
-                    reason: format!("Weight fraction for Z={} must be positive, got {}", z, f),
                 });
             }
             sum += f;
@@ -81,13 +65,13 @@ mod tests {
 
     #[test]
     fn test_invalid_density() {
-        let json = r#"{
-            "name": "Bad",
-            "density": -1.0,
-            "composition": {"1": 1.0}
-        }"#;
-        let input: MaterialInput = serde_json::from_str(json).unwrap();
-        assert!(input.build().is_err());
+        let yaml = r#"name: Bad
+density: -1.0
+composition:
+  1: 1.0
+        "#;
+        let input: Result<MaterialInput, _> = serde_saphyr::from_str_valid(yaml);
+        assert!(input.is_err());
     }
 
     #[test]

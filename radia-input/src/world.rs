@@ -1,3 +1,4 @@
+use garde::Validate;
 use glam::Vec3A;
 use radia_core::csg::{CSGNode, Cell, World};
 use radia_core::primitive::Primitive;
@@ -5,35 +6,45 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::InputError;
+use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
 
-const EPSILON: f32 = 1e-6; // length [cm]
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct WorldInput {
+    #[garde(length(min = 1))]
     pub primitives: Vec<PrimitiveInput>,
+    #[garde(length(min = 1))]
     pub cells: Vec<CellInput>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 #[serde(tag = "type")]
 pub enum PrimitiveInput {
     #[serde(alias = "SPH")]
     Sphere {
+        #[garde(length(min = 1))]
         name: String,
+        #[garde(skip)]
         center: [f32; 3],
+        #[garde(range(min = 0.0))]
         radius: f32,
     },
     #[serde(alias = "RPP", alias = "Aabb", alias = "AABB")]
     RectangularParallelPiped {
+        #[garde(length(min = 1))]
         name: String,
-        min: [f32; 3],
-        max: [f32; 3],
+        #[garde(dive)]
+        #[serde(flatten)]
+        bounds: MinMaxBounds,
     },
     #[serde(alias = "CYL")]
     FiniteCylinder {
+        #[garde(length(min = 1))]
         name: String,
+        #[garde(skip)]
         center: [f32; 3],
+        #[garde(custom(is_vector_longer_than_epsilon))]
         vector: [f32; 3],
+        #[garde(range(min = 0.0))]
         radius: f32,
     },
 }
@@ -82,31 +93,14 @@ impl WorldInput {
             primitive_map.insert(name.to_string(), id);
 
             let p = match p_conf {
-                PrimitiveInput::Sphere { center, radius, .. } => {
-                    if radius < 0.0 {
-                        return Err(InputError::InvalidPrimitive {
-                            name: name.to_string(),
-                            reason: format!("radius must be non-negative, got {}", radius),
-                        });
-                    }
-                    Primitive::Sphere {
-                        center: Vec3A::from_array(center),
-                        radius2: radius * radius,
-                    }
-                }
-                PrimitiveInput::RectangularParallelPiped { min, max, .. } => {
-                    if min[0] > max[0] || min[1] > max[1] || min[2] > max[2] {
-                        return Err(InputError::InvalidPrimitive {
-                            name: name.to_string(),
-                            reason: format!(
-                                "min elements must be <= max elements, got min: {:?}, max: {:?}",
-                                min, max
-                            ),
-                        });
-                    }
+                PrimitiveInput::Sphere { center, radius, .. } => Primitive::Sphere {
+                    center: Vec3A::from_array(center),
+                    radius2: radius * radius,
+                },
+                PrimitiveInput::RectangularParallelPiped { bounds, .. } => {
                     Primitive::RectangularParallelPiped {
-                        min: Vec3A::from_array(min),
-                        max: Vec3A::from_array(max),
+                        min: Vec3A::from_array(bounds.min),
+                        max: Vec3A::from_array(bounds.max),
                     }
                 }
                 PrimitiveInput::FiniteCylinder {
@@ -115,20 +109,8 @@ impl WorldInput {
                     radius,
                     ..
                 } => {
-                    if radius < 0.0 {
-                        return Err(InputError::InvalidPrimitive {
-                            name: name.to_string(),
-                            reason: format!("radius must be non-negative, got {}", radius),
-                        });
-                    }
                     let v = Vec3A::from_array(vector);
                     let length = v.length();
-                    if length <= EPSILON {
-                        return Err(InputError::InvalidPrimitive {
-                            name: name.to_string(),
-                            reason: format!("Invalid cylinder length: {}", length),
-                        });
-                    }
                     Primitive::FiniteCylinder {
                         center: Vec3A::from_array(center),
                         direction: v / length,

@@ -1,9 +1,12 @@
+use garde::Validate;
 use glam::Vec3A;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct DetectorInput {
+    #[garde(length(min = 2))]
     pub name: String,
+    #[garde(skip)]
     pub position: [f32; 3],
 }
 

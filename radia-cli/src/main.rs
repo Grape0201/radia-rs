@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     println!("Building buildup parameters...");
     let mut gp_provider = GPBuildupProvider::new();
     for buildup_input in sim_input.buildup_params {
-        let (name, params) = buildup_input.build().into_diagnostic()?;
+        let (name, params) = buildup_input.build();
         gp_provider.insert_data(name, params);
     }
 
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
 
     let energy_groups = sim_input.source.energy_groups;
     let intensity_by_group = sim_input.source.intensity_by_group;
-    let srcs = sim_input.source.shape.build().into_diagnostic()?;
+    let srcs = sim_input.source.shape.build();
 
     println!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(

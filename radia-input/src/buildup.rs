@@ -1,15 +1,20 @@
+use garde::Validate;
 use radia_core::physics::GPParams;
 use serde::{Deserialize, Serialize};
 
-use crate::InputError;
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct GPParamsInput {
+    #[garde(range(min = 0.0))]
     pub energy_mev: f32,
+    #[garde(skip)]
     pub a: f32,
+    #[garde(skip)]
     pub b: f32,
+    #[garde(skip)]
     pub c: f32,
+    #[garde(skip)]
     pub d: f32,
+    #[garde(skip)]
     pub xk: f32,
 }
 
@@ -26,37 +31,23 @@ impl From<GPParamsInput> for GPParams {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct BuildupInput {
+    #[garde(length(min = 2))]
     pub material_name: String,
+    #[garde(length(min = 1), dive)]
     pub params: Vec<GPParamsInput>,
 }
 
 impl BuildupInput {
-    pub fn build(mut self) -> Result<(String, Vec<GPParams>), InputError> {
-        if self.params.is_empty() {
-            return Err(InputError::InvalidBuildup {
-                name: self.material_name,
-                reason: "Buildup parameters list cannot be empty".to_string(),
-            });
-        }
-
-        // Validate energies are positive and sort them
-        for p in &self.params {
-            if p.energy_mev <= 0.0 {
-                return Err(InputError::InvalidBuildup {
-                    name: self.material_name.clone(),
-                    reason: format!("Energy must be positive, got {}", p.energy_mev),
-                });
-            }
-        }
-
+    pub fn build(mut self) -> (String, Vec<GPParams>) {
+        // sort by energy
         self.params
             .sort_by(|a, b| a.energy_mev.partial_cmp(&b.energy_mev).unwrap());
 
         let gp_params = self.params.into_iter().map(|p| p.into()).collect();
 
-        Ok((self.material_name, gp_params))
+        (self.material_name, gp_params)
     }
 }
 
@@ -75,12 +66,61 @@ mod tests {
         }"#;
 
         let input: BuildupInput = serde_json::from_str(json).unwrap();
-        let (name, params) = input.build().unwrap();
+        let (name, params) = input.build();
 
         assert_eq!(name, "Water");
         assert_eq!(params.len(), 2);
         // It should be sorted by energy, so 0.5 MeV first
         assert_eq!(params[0].energy_mev, 0.5);
         assert_eq!(params[1].energy_mev, 1.0);
+    }
+
+    #[test]
+    fn test_validate_with_garde() {
+        let yaml = r#"material_name: Water
+params:
+  - energy_mev: 1.0
+    a: 0.1
+    b: 1.0
+    c: 0.5
+    d: 0.05
+    xk: 10.0
+  - energy_mev: 0.5
+    a: 0.1
+    b: 1.0
+    c: 0.5
+    d: 0.05
+    xk: 10.0
+"#;
+
+        let input: Result<BuildupInput, _> = serde_saphyr::from_str_valid(yaml);
+        assert!(input.is_ok());
+
+        // empty params
+        let yaml = r#"material_name: Water
+params:
+"#;
+        let input: Result<BuildupInput, _> = serde_saphyr::from_str_valid(yaml);
+        assert!(input.is_err());
+
+        // negative energy
+        let yaml = r#"material_name: Water
+params:
+  - energy_mev: -1.0
+    a: 0.1
+    b: 1.0
+    c: 0.5
+    d: 0.05
+    xk: 10.0
+  - energy_mev: 0.5
+    a: 0.1
+    b: 1.0
+    c: 0.5
+    d: 0.05
+    xk: 10.0
+"#;
+
+        let input: Result<BuildupInput, _> = serde_saphyr::from_str_valid(yaml);
+        assert!(input.is_err());
     }
 }

@@ -11,7 +11,7 @@ use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
 #[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct WorldInput {
     #[garde(length(min = 1))]
-    pub primitives: Vec<PrimitiveInput>,
+    pub primitives: HashMap<String, PrimitiveInput>,
     #[garde(length(min = 1))]
     pub cells: Vec<CellInput>,
 }
@@ -21,8 +21,6 @@ pub struct WorldInput {
 pub enum PrimitiveInput {
     #[serde(alias = "SPH")]
     Sphere {
-        #[garde(length(min = 1))]
-        name: String,
         #[garde(skip)]
         center: [f32; 3],
         #[garde(range(min = 0.0))]
@@ -30,16 +28,12 @@ pub enum PrimitiveInput {
     },
     #[serde(alias = "RPP", alias = "Aabb", alias = "AABB")]
     RectangularParallelPiped {
-        #[garde(length(min = 1))]
-        name: String,
         #[garde(dive)]
         #[serde(flatten)]
         bounds: MinMaxBounds,
     },
     #[serde(alias = "CYL")]
     FiniteCylinder {
-        #[garde(length(min = 1))]
-        name: String,
         #[garde(skip)]
         center: [f32; 3],
         #[garde(custom(is_vector_longer_than_epsilon))]
@@ -47,16 +41,6 @@ pub enum PrimitiveInput {
         #[garde(range(min = 0.0))]
         radius: f32,
     },
-}
-
-impl PrimitiveInput {
-    pub fn name(&self) -> &str {
-        match self {
-            Self::Sphere { name, .. } => name,
-            Self::RectangularParallelPiped { name, .. } => name,
-            Self::FiniteCylinder { name, .. } => name,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -82,9 +66,8 @@ impl WorldInput {
         let mut primitive_map = HashMap::new();
         let mut primitives = Vec::new();
 
-        for p_conf in self.primitives {
-            let name = p_conf.name();
-            if !used_primitive_names.contains(name) {
+        for (name, p_conf) in self.primitives {
+            if !used_primitive_names.contains(&name) {
                 eprintln!("Warning: Primitive '{}' is defined but never used.", name);
                 continue;
             }
@@ -208,11 +191,11 @@ mod tests {
     #[test]
     fn test_deserialize_world_input() {
         let json = r#"{
-            "primitives": [
-                {"name": "unused", "type": "Sphere", "center": [1.0, 1.0, 1.0], "radius": 1.0},
-                {"name": "source", "type": "Sphere", "center": [0.0, 0.0, 0.0], "radius": 2.0},
-                {"name": "whole_world", "type": "RectangularParallelPiped", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}
-            ],
+            "primitives": {
+                "unused": {"type": "Sphere", "center": [1.0, 1.0, 1.0], "radius": 1.0},
+                "source": {"type": "Sphere", "center": [0.0, 0.0, 0.0], "radius": 2.0},
+                "whole_world": {"type": "RectangularParallelPiped", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}
+            },
             "cells": [
                 {"material_name": "Water", "csg": {"op": "inner", "prs": ["source"]}},
                 {"material_name": "Air", "csg": {"op": "difference", "prs": ["whole_world", "source"]}}
@@ -244,41 +227,34 @@ mod tests {
 
     #[test]
     fn test_deserialize_primitive_aliases() {
-        let json = r#"{
-            "primitives": [
-                {"name": "s", "type": "SPH", "center": [0.0, 0.0, 0.0], "radius": 1.0},
-                {"name": "r1", "type": "RPP", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
-                {"name": "r2", "type": "Aabb", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
-                {"name": "r3", "type": "AABB", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]},
-                {"name": "c", "type": "CYL", "center": [0.0, 0.0, 0.0], "vector": [0.0, 0.0, 1.0], "radius": 0.5}
-            ],
-            "cells": [
-                {"material_name": "Water", "csg": "s"}
-            ]
-        }"#;
+        let yaml = r#"primitives:
+  s:
+    type: SPH
+    center: [0.0, 0.0, 0.0]
+    radius: 1.0
+  r1:
+    type: RPP
+    min: [0.0, 0.0, 0.0]
+    max: [1.0, 1.0, 1.0]
+  r2:
+    type: Aabb
+    min: [0.0, 0.0, 0.0]
+    max: [1.0, 1.0, 1.0]
+  r3:
+    type: AABB
+    min: [0.0, 0.0, 0.0]
+    max: [1.0, 1.0, 1.0]
+  c:
+    type: CYL
+    center: [0.0, 0.0, 0.0]
+    vector: [0.0, 0.0, 1.0]
+    radius: 0.5
+cells:
+- material_name: Water
+  csg: s
+        "#;
 
-        let input: WorldInput = serde_json::from_str(json).unwrap();
-        assert_eq!(input.primitives.len(), 5);
-
-        match &input.primitives[0] {
-            PrimitiveInput::Sphere { name, .. } => assert_eq!(name, "s"),
-            _ => panic!("Expected Sphere"),
-        }
-        match &input.primitives[1] {
-            PrimitiveInput::RectangularParallelPiped { name, .. } => assert_eq!(name, "r1"),
-            _ => panic!("Expected RectangularParallelPiped"),
-        }
-        match &input.primitives[2] {
-            PrimitiveInput::RectangularParallelPiped { name, .. } => assert_eq!(name, "r2"),
-            _ => panic!("Expected RectangularParallelPiped"),
-        }
-        match &input.primitives[3] {
-            PrimitiveInput::RectangularParallelPiped { name, .. } => assert_eq!(name, "r3"),
-            _ => panic!("Expected RectangularParallelPiped"),
-        }
-        match &input.primitives[4] {
-            PrimitiveInput::FiniteCylinder { name, .. } => assert_eq!(name, "c"),
-            _ => panic!("Expected FiniteCylinder"),
-        }
+        let input: Result<WorldInput, _> = serde_saphyr::from_str_valid(yaml);
+        assert!(input.is_ok());
     }
 }

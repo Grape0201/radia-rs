@@ -1,10 +1,10 @@
 world:
   primitives:
-    - name: "source_sphere"
+    source_sphere:
       type: "Sphere"
       center: [0.0, 0.0, 0.0]
       radius: 2.0
-    - name: "shield_box"
+    shield_box:
       type: "RectangularParallelPiped"
       min: [-5.0, -5.0, -5.0]
       max: [5.0, 5.0, 5.0]

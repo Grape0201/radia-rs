@@ -1,3 +1,4 @@
+mod atomic_number;
 pub mod buildup;
 mod common;
 pub mod material;

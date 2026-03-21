@@ -21,12 +21,12 @@ materials:
   Water:
     density: 1.0
     composition:
-      1: 0.112
+      H: 0.112
       8: 0.888
   Iron:
     density: 7.87
     composition:
-      26: 1.0
+      Fe: 1.0
 
 buildup_params:
   WaterGP:

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-pub type AtomicNumber = u32;
+pub type AtomicNumber = usize;
 
 pub type MaterialIndex = usize;
 pub type GroupIndex = usize;

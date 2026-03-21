@@ -8,7 +8,9 @@ radia-core = { path = "../radia-core" }
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 thiserror.workspace = true
+miette.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

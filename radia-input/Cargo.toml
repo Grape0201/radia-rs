@@ -10,7 +10,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 miette.workspace = true
-serde-saphyr = { version = "0.0.22", features = ["garde"] }
+serde-saphyr = { version = "0.0.22", features = ["garde", "miette"] }
 garde = { version = "0.22", features = ["derive"] }
 
 [dev-dependencies]

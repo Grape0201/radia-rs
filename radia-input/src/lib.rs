@@ -36,7 +36,7 @@ pub enum InputError {
     InvalidEnergyGroupLength(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Validation error: {0}")]
+    #[error(transparent)]
     Validation(#[from] serde_saphyr::Error),
 }
 

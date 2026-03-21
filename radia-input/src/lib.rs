@@ -30,12 +30,12 @@ pub enum InputError {
     InvalidSource(String),
     #[error("Invalid buildup parameter for material '{name}': {reason}")]
     InvalidBuildup { name: String, reason: String },
-    #[error("Validation error: {0}")]
-    ValidationError(String),
+    #[error("Invalid energy group length: {0}")]
+    InvalidEnergyGroupLength(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("YAML error: {message}")]
-    Yaml { message: String },
+    #[error("Validation error: {0}")]
+    Validation(#[from] serde_saphyr::Error),
 }
 
 #[derive(Deserialize, Debug, Validate)]
@@ -61,10 +61,7 @@ impl SimulationInput {
         let path_ref = path.as_ref();
         let yaml_str = std::fs::read_to_string(path_ref).map_err(InputError::Io)?;
 
-        let input: SimulationInput =
-            serde_saphyr::from_str_valid(&yaml_str).map_err(|e| InputError::Yaml {
-                message: e.to_string(),
-            })?;
+        let input: SimulationInput = serde_saphyr::from_str_valid(&yaml_str)?;
         input.validate()?;
 
         Ok(input)
@@ -98,7 +95,7 @@ impl SimulationInput {
         if !self.conversion_factors.is_empty()
             && self.conversion_factors.len() != self.source.energy_groups.len()
         {
-            return Err(InputError::ValidationError(
+            return Err(InputError::InvalidEnergyGroupLength(
                 "conversion_factors length must match sources energy_groups length".to_string(),
             ));
         }

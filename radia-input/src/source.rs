@@ -67,7 +67,7 @@ pub enum SourceShapeInput {
 
 #[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct SourceInput {
-    #[garde(length(min = 1))]
+    #[garde(custom(is_all_zero_or_more), length(min = 1))]
     pub energy_groups: Vec<f32>,
     #[garde(custom(is_all_zero_or_more), length(min = 1))]
     pub intensity_by_group: Vec<f32>,

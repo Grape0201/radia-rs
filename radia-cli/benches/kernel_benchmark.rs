@@ -126,11 +126,18 @@ fn generate_test_environment() -> (
     let conversion_factors = vec![1.0; energy_groups.len()];
     let intensity_by_group = vec![1.0 / energy_groups.len() as f32; energy_groups.len()];
 
-    (world, physics_table, sources, conversion_factors, intensity_by_group)
+    (
+        world,
+        physics_table,
+        sources,
+        conversion_factors,
+        intensity_by_group,
+    )
 }
 
 fn benchmark_single(c: &mut Criterion) {
-    let (world, physics_table, sources, conversion_factors, intensity_by_group) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors, intensity_by_group) =
+        generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
 
     // We bind the closures outside of the loop to measure inner calculation speed
@@ -152,7 +159,8 @@ fn benchmark_single(c: &mut Criterion) {
 }
 
 fn benchmark_parallel(c: &mut Criterion) {
-    let (world, physics_table, sources, conversion_factors, intensity_by_group) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors, intensity_by_group) =
+        generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
     let (get_mu, get_buildup) = physics_table.into_closures();
 

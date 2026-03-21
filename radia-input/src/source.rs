@@ -8,7 +8,7 @@ use crate::InputError;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
-pub enum SourceInput {
+pub enum SourceShapeInput {
     #[serde(alias = "Point")]
     Point { position: [f32; 3], intensity: f32 },
     #[serde(alias = "Cylinder")]
@@ -41,7 +41,15 @@ pub enum SourceInput {
     },
 }
 
-impl SourceInput {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SourceInput {
+    pub energy_groups: Vec<f32>,
+    pub intensity_by_group: Vec<f32>,
+    #[serde(flatten)]
+    pub shape: SourceShapeInput,
+}
+
+impl SourceShapeInput {
     pub fn build(self) -> Result<Vec<PointSource>, InputError> {
         match self {
             Self::Point {
@@ -189,15 +197,18 @@ mod tests {
         let json = r#"{
             "type": "Point",
             "position": [1.0, 2.0, 3.0],
-            "intensity": 100.0
+            "intensity": 100.0,
+            "energy_groups": [1.0],
+            "intensity_by_group": [1.0]
         }"#;
 
         let input: SourceInput = serde_json::from_str(json).unwrap();
-        let sources = input.build().unwrap();
+        let sources = input.shape.build().unwrap();
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].position, Vec3A::new(1.0, 2.0, 3.0));
         assert_eq!(sources[0].intensity, 100.0);
+        assert_eq!(input.energy_groups, vec![1.0]);
     }
 
     #[test]
@@ -210,11 +221,13 @@ mod tests {
             "nd_c": 10,
             "nd_h": 10,
             "nd_r": 5,
-            "total_intensity": 100.0
+            "total_intensity": 100.0,
+            "energy_groups": [1.0],
+            "intensity_by_group": [1.0]
         }"#;
         // Zero length axis should fail
         let input: SourceInput = serde_json::from_str(json).unwrap();
-        assert!(input.build().is_err());
+        assert!(input.shape.build().is_err());
     }
 
     #[test]
@@ -226,11 +239,13 @@ mod tests {
             "nd_r": 2,
             "nd_theta": 4,
             "nd_phi": 4,
-            "total_intensity": 1000.0
+            "total_intensity": 1000.0,
+            "energy_groups": [1.0],
+            "intensity_by_group": [1.0]
         }"#;
 
         let input: SourceInput = serde_json::from_str(json).unwrap();
-        let sources = input.build().unwrap();
+        let sources = input.shape.build().unwrap();
 
         assert_eq!(sources.len(), 32); // 2 * 4 * 4
         let total_built_intensity: f32 = sources.iter().map(|s| s.intensity).sum();

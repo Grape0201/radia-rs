@@ -61,13 +61,6 @@ fn main() -> Result<()> {
         gp_provider.insert_data(name, params);
     }
 
-    println!("Building sources...");
-    let mut sources = Vec::new();
-    for src_input in sim_input.sources {
-        let srcs = src_input.build().into_diagnostic()?;
-        sources.extend(srcs);
-    }
-
     let mut detectors = Vec::new();
     for det_input in sim_input.detectors {
         let (name, pos) = det_input.build();
@@ -81,37 +74,45 @@ fn main() -> Result<()> {
             .expect("Failed to load elements.json (looked in 'data/elements.json' and '../data/elements.json')"),
     };
 
-    // Default energy groups for now
-    let energy_groups = vec![1.0];
-    let conversion_factors = vec![1.0];
-    let intensity_by_group = vec![1.0];
-
-    println!("Generating material physics table...");
-    let physics_table = MaterialPhysicsTable::generate(
-        &used_materials,
-        &sim_input.buildup_alias_map,
-        &registry,
-        &energy_groups,
-        &provider,
-        &gp_provider,
-    )
-    .into_diagnostic()?;
-
-    let (get_mu, get_buildup) = physics_table.into_closures();
-
     println!("Calculating dose rates...");
+    let mut detector_doses = std::collections::HashMap::new();
+
+    for src_input in sim_input.sources {
+        let energy_groups = src_input.energy_groups;
+        let intensity_by_group = src_input.intensity_by_group;
+        let srcs = src_input.shape.build().into_diagnostic()?;
+
+        println!("Generating material physics table for a source...");
+        let physics_table = MaterialPhysicsTable::generate(
+            &used_materials,
+            &sim_input.buildup_alias_map,
+            &registry,
+            &energy_groups,
+            &provider,
+            &gp_provider,
+        )
+        .into_diagnostic()?;
+
+        let (get_mu, get_buildup) = physics_table.into_closures();
+
+        for (name, pos) in &detectors {
+            let chunk_size = 1000;
+            let dose_rate = calculate_dose_rate_parallel(
+                &get_mu,
+                &get_buildup,
+                &world,
+                &sim_input.conversion_factors,
+                &intensity_by_group,
+                *pos,
+                &srcs,
+                chunk_size,
+            );
+            *detector_doses.entry(name.clone()).or_insert(0.0) += dose_rate;
+        }
+    }
+
     for (name, pos) in detectors {
-        let chunk_size = 1000;
-        let dose_rate = calculate_dose_rate_parallel(
-            &get_mu,
-            &get_buildup,
-            &world,
-            &conversion_factors,
-            &intensity_by_group,
-            pos,
-            &sources,
-            chunk_size,
-        );
+        let dose_rate = detector_doses.get(&name).unwrap_or(&0.0);
         println!(
             "Detector '{}' at {:?}: Dose Rate = {:.6e}",
             name, pos, dose_rate

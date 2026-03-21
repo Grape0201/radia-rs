@@ -53,6 +53,8 @@ pub struct SimulationInput {
     #[serde(default)]
     pub detectors: Vec<detector::DetectorInput>,
     #[serde(default)]
+    pub conversion_factors: Vec<f32>,
+    #[serde(default)]
     pub sources: Vec<source::SourceInput>,
 }
 

@@ -44,3 +44,11 @@ pub(crate) fn is_all_zero_or_more(v: &[f32], _ctx: &()) -> garde::Result {
         Err(garde::Error::new("all elements must be more than zero"))
     }
 }
+
+pub(crate) fn is_sorted(v: &[f32], _ctx: &()) -> garde::Result {
+    if v.windows(2).all(|w| w[0] <= w[1]) {
+        Ok(())
+    } else {
+        Err(garde::Error::new("all elements must be sorted"))
+    }
+}

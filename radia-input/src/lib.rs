@@ -12,6 +12,8 @@ use miette::Diagnostic;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::common::is_all_zero_or_more;
+
 #[derive(Error, Diagnostic, Debug)]
 pub enum InputError {
     #[error("Material '{0}' not found")]
@@ -50,7 +52,7 @@ pub struct SimulationInput {
     pub buildup_alias_map: std::collections::HashMap<String, String>,
     #[garde(length(min = 1))]
     pub detectors: HashMap<String, [f32; 3]>,
-    #[garde(skip)]
+    #[garde(custom(is_all_zero_or_more), length(min = 1))]
     pub conversion_factors: Vec<f32>,
     #[garde(dive)]
     pub source: source::SourceInput,
@@ -77,24 +79,12 @@ impl SimulationInput {
             }
         }
 
-        if self.source.energy_groups.is_empty() {
-            return Err(InputError::InvalidSource(
-                "energy_groups cannot be empty".to_string(),
-            ));
-        }
         if self.source.energy_groups.len() != self.source.intensity_by_group.len() {
-            return Err(InputError::InvalidSource(
+            return Err(InputError::InvalidEnergyGroupLength(
                 "energy_groups length and intensity_by_group length must match".to_string(),
             ));
         }
-        if self.source.intensity_by_group.iter().any(|&i| i < 0.0) {
-            return Err(InputError::InvalidSource(
-                "intensity_by_group elements cannot be negative".to_string(),
-            ));
-        }
-        if !self.conversion_factors.is_empty()
-            && self.conversion_factors.len() != self.source.energy_groups.len()
-        {
+        if self.conversion_factors.len() != self.source.energy_groups.len() {
             return Err(InputError::InvalidEnergyGroupLength(
                 "conversion_factors length must match sources energy_groups length".to_string(),
             ));

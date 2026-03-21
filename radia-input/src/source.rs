@@ -5,7 +5,7 @@ use radia_core::source::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
+use crate::common::{MinMaxBounds, is_all_zero_or_more, is_vector_longer_than_epsilon};
 
 #[derive(Serialize, Deserialize, Debug, Validate)]
 #[serde(tag = "type")]
@@ -69,7 +69,7 @@ pub enum SourceShapeInput {
 pub struct SourceInput {
     #[garde(length(min = 1))]
     pub energy_groups: Vec<f32>,
-    #[garde(length(min = 1))]
+    #[garde(custom(is_all_zero_or_more), length(min = 1))]
     pub intensity_by_group: Vec<f32>,
     #[garde(dive)]
     #[serde(flatten)]

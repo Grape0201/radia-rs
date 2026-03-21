@@ -9,9 +9,6 @@ pub enum BuildupError {
     #[error("Material '{0}' not found in buildup data")]
     MaterialNotFound(String),
 
-    #[error("Target quantity '{0:?}' not found for material '{1}'")]
-    QuantityNotFound(TargetQuantity, String),
-
     #[error("Target energy {target} MeV is too low (minimum {min} MeV) for material '{material}'")]
     EnergyTooLow {
         target: f32,
@@ -139,7 +136,6 @@ impl MaterialPhysicsTable {
         energy_groups: &[f32],
         mu_provider: &impl MassAttenuationProvider,
         buildup_provider: &GPBuildupProvider,
-        quantity: TargetQuantity,
     ) -> Result<Self, MaterialPhysicsError> {
         let num_materials = material_names.len();
         let num_groups = energy_groups.len();
@@ -164,7 +160,7 @@ impl MaterialPhysicsTable {
 
             // 2. Interpolate buildup models
             for &energy in energy_groups {
-                let model = buildup_provider.interpolate(buildup_source, quantity, energy)?;
+                let model = buildup_provider.interpolate(buildup_source, energy)?;
                 buildup_models.push(model);
             }
         }
@@ -226,21 +222,6 @@ impl MaterialPhysicsTable {
 }
 
 // ==== G-P Method Provider with Interpolation ====
-
-/// The physical quantity the buildup factor corresponds to.
-/// Different target quantities require different G-P parameters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TargetQuantity {
-    /// Exposure (Air Kerma)
-    Exposure,
-    /// Ambient Dose Equivalent (e.g. 1cm dose)
-    AmbientDoseEquivalent,
-    /// Effective Dose Equivalent
-    EffectiveDoseEquivalent,
-    /// Energy Absorption (in the material itself)
-    EnergyAbsorption,
-}
-
 /// Parameter set for the G-P method at a specific energy and target quantity.
 #[derive(Clone, Copy, Debug)]
 pub struct GPParams {
@@ -256,7 +237,7 @@ pub struct GPParams {
 pub struct GPBuildupProvider {
     /// Mapping of (Material identifier, TargetQuantity) to their energy-dependent G-P parameters.
     /// Data is assumed to be sorted by energy ascending.
-    data: std::collections::HashMap<(String, TargetQuantity), Vec<GPParams>>,
+    data: std::collections::HashMap<String, Vec<GPParams>>,
 }
 
 impl Default for GPBuildupProvider {
@@ -275,23 +256,9 @@ impl GPBuildupProvider {
 
     /// Programmatically inserts G-P parameters for a material and quantity.
     /// Data is automatically sorted by energy.
-    pub fn insert_data(
-        &mut self,
-        material_name: String,
-        quantity: TargetQuantity,
-        mut params: Vec<GPParams>,
-    ) {
+    pub fn insert_data(&mut self, material_name: String, mut params: Vec<GPParams>) {
         params.sort_by(|a, b| a.energy_mev.partial_cmp(&b.energy_mev).unwrap());
-        self.data.insert((material_name, quantity), params);
-    }
-
-    /// Returns a list of target quantities supported for the given material.
-    pub fn get_available_quantities(&self, material_name: &str) -> Vec<TargetQuantity> {
-        self.data
-            .keys()
-            .filter(|(m, _)| m == material_name)
-            .map(|(_, q)| *q)
-            .collect()
+        self.data.insert(material_name, params);
     }
 
     /// Linear interpolation with respect to log(E).
@@ -299,12 +266,11 @@ impl GPBuildupProvider {
     pub(crate) fn interpolate(
         &self,
         material_name: &str,
-        quantity: TargetQuantity,
         target_energy: f32,
     ) -> Result<BuildupModel, BuildupError> {
         let params_list = self
             .data
-            .get(&(material_name.to_string(), quantity))
+            .get(material_name)
             .ok_or_else(|| BuildupError::MaterialNotFound(material_name.to_string()))?;
 
         if params_list.is_empty() {
@@ -443,25 +409,11 @@ mod tests {
                 xk: 13.5,
             },
         ];
-        provider.insert_data(
-            "DummyMaterial".to_string(),
-            TargetQuantity::Exposure,
-            dummy_data.clone(),
-        );
-        provider.insert_data(
-            "DummyMaterial".to_string(),
-            TargetQuantity::AmbientDoseEquivalent,
-            dummy_data,
-        );
-
-        let quantities = provider.get_available_quantities("DummyMaterial");
-        assert!(quantities.contains(&TargetQuantity::Exposure));
-        assert!(quantities.contains(&TargetQuantity::AmbientDoseEquivalent));
+        provider.insert_data("DummyMaterial".to_string(), dummy_data.clone());
+        provider.insert_data("DummyMaterial".to_string(), dummy_data);
 
         // Exact match
-        let model_1mev = provider
-            .interpolate("DummyMaterial", TargetQuantity::Exposure, 1.0)
-            .unwrap();
+        let model_1mev = provider.interpolate("DummyMaterial", 1.0).unwrap();
         if let BuildupModel::GeometricProgression { a, .. } = model_1mev {
             assert!((a - 0.12).abs() < 1e-5);
         } else {
@@ -469,9 +421,7 @@ mod tests {
         }
 
         // Interpolated (e.g. at 1.414 MeV)
-        let model_interp = provider
-            .interpolate("DummyMaterial", TargetQuantity::Exposure, 1.414)
-            .unwrap();
+        let model_interp = provider.interpolate("DummyMaterial", 1.414).unwrap();
         if let BuildupModel::GeometricProgression { a, .. } = model_interp {
             // Should be between 1.0 MeV (a=0.12) and 10.0 MeV (a=0.2)
             assert!(a > 0.12 && a < 0.2);
@@ -480,10 +430,10 @@ mod tests {
         }
 
         // Out of range (Extrapolation) should now be an error
-        let err_low = provider.interpolate("DummyMaterial", TargetQuantity::Exposure, 0.1);
+        let err_low = provider.interpolate("DummyMaterial", 0.1);
         assert!(matches!(err_low, Err(BuildupError::EnergyTooLow { .. })));
 
-        let err_high = provider.interpolate("DummyMaterial", TargetQuantity::Exposure, 20.0);
+        let err_high = provider.interpolate("DummyMaterial", 20.0);
         assert!(matches!(err_high, Err(BuildupError::EnergyTooHigh { .. })));
 
         let mut registry = MaterialRegistry::new();
@@ -501,7 +451,6 @@ mod tests {
             &[1.0, 2.0],
             &mu_provider,
             &provider,
-            TargetQuantity::Exposure,
         )
         .unwrap();
 
@@ -537,14 +486,10 @@ mod tests {
                 xk: 14.4,
             },
         ];
-        provider.insert_data(
-            "UnsortedMaterial".to_string(),
-            TargetQuantity::Exposure,
-            unsorted_data,
-        );
+        provider.insert_data("UnsortedMaterial".to_string(), unsorted_data);
 
         // Interpolation at 2.0 MeV should work if it was sorted correctly
-        let result = provider.interpolate("UnsortedMaterial", TargetQuantity::Exposure, 2.0);
+        let result = provider.interpolate("UnsortedMaterial", 2.0);
         assert!(result.is_ok());
         if let Ok(BuildupModel::GeometricProgression { a, .. }) = result {
             // a should be between 0.12 (at 1MeV) and 0.2 (at 10MeV)

@@ -4,7 +4,7 @@ use pprof::criterion::{Output, PProfProfiler};
 use radia_cli::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_core::csg::{CSGNode, Cell, World};
 use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
-use radia_core::physics::{GPBuildupProvider, TargetQuantity};
+use radia_core::physics::GPBuildupProvider;
 use radia_core::primitive::Primitive;
 use radia_core::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
@@ -68,11 +68,7 @@ fn generate_test_environment() -> (
             xk: 13.5,
         },
     ];
-    gp_provider.insert_data(
-        "DummyMaterial".to_string(),
-        TargetQuantity::AmbientDoseEquivalent,
-        dummy_params,
-    );
+    gp_provider.insert_data("DummyMaterial".to_string(), dummy_params);
 
     let physics_table = radia_core::physics::MaterialPhysicsTable::generate(
         &material_names,
@@ -80,7 +76,6 @@ fn generate_test_environment() -> (
         &energy_groups,
         &DummyProvider,
         &gp_provider,
-        TargetQuantity::AmbientDoseEquivalent,
     )
     .expect("Failed to generate physics table");
 

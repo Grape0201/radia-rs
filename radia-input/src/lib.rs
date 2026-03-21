@@ -1,6 +1,5 @@
 pub mod buildup;
 mod common;
-pub mod detector;
 pub mod material;
 pub mod source;
 pub mod world;
@@ -49,8 +48,8 @@ pub struct SimulationInput {
     pub buildup_params: HashMap<String, Vec<buildup::GPParamsInput>>,
     #[garde(length(min = 1))]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
-    #[garde(length(min = 1), dive)]
-    pub detectors: Vec<detector::DetectorInput>,
+    #[garde(length(min = 1))]
+    pub detectors: HashMap<String, [f32; 3]>,
     #[garde(skip)]
     pub conversion_factors: Vec<f32>,
     #[garde(dive)]
@@ -72,17 +71,6 @@ impl SimulationInput {
     }
 
     pub fn validate(&self) -> Result<(), InputError> {
-        let mut det_names = std::collections::HashSet::new();
-        for det in &self.detectors {
-            let name = &det.name;
-            if !det_names.insert(name.clone()) {
-                return Err(InputError::ValidationError(format!(
-                    "Duplicate detector definition: '{}'",
-                    name
-                )));
-            }
-        }
-
         for cell in &self.world.cells {
             if !self.buildup_alias_map.contains_key(&cell.material_name) {
                 return Err(InputError::InvalidMaterial {

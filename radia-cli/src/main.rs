@@ -61,12 +61,6 @@ fn main() -> Result<()> {
         gp_provider.insert_data(name, params.into_iter().map(|p| p.into()).collect());
     }
 
-    let mut detectors_ = Vec::new();
-    for det_input in detectors {
-        let (name, pos) = det_input.build();
-        detectors_.push((name, pos));
-    }
-
     println!("Loading physical datatables...");
     let provider = match JsonMassAttenuationProvider::from_file("data/elements.json") {
         Ok(p) => p,
@@ -94,7 +88,7 @@ fn main() -> Result<()> {
 
     let (get_mu, get_buildup) = physics_table.into_closures();
 
-    for (name, pos) in &detectors_ {
+    for (name, pos) in &detectors {
         let chunk_size = 1000;
         let dose_rate = calculate_dose_rate_parallel(
             &get_mu,
@@ -102,14 +96,14 @@ fn main() -> Result<()> {
             &world,
             &conversion_factors,
             &intensity_by_group,
-            *pos,
+            glam::Vec3A::from(*pos),
             &srcs,
             chunk_size,
         );
         *detector_doses.entry(name.clone()).or_insert(0.0) += dose_rate;
     }
 
-    for (name, pos) in detectors_ {
+    for (name, pos) in detectors {
         let dose_rate = detector_doses.get(&name).unwrap_or(&0.0);
         println!(
             "Detector '{}' at {:?}: Dose Rate = {:.6e}",

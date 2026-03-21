@@ -48,7 +48,7 @@ pub struct SimulationInput {
     pub buildup_params: Vec<buildup::BuildupInput>,
     #[garde(length(min = 1))]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
-    #[garde(dive)]
+    #[garde(length(min = 1), dive)]
     pub detectors: Vec<detector::DetectorInput>,
     #[garde(skip)]
     pub conversion_factors: Vec<f32>,
@@ -71,12 +71,6 @@ impl SimulationInput {
     }
 
     pub fn validate(&self) -> Result<(), InputError> {
-        if self.detectors.is_empty() {
-            return Err(InputError::ValidationError(
-                "At least one detector must be defined".to_string(),
-            ));
-        }
-
         let mut mat_names = std::collections::HashSet::new();
         for mat in &self.materials {
             if !mat_names.insert(&mat.name) {

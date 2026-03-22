@@ -30,7 +30,7 @@ fn main() -> Result<()> {
 
     let SimulationInput {
         world,
-        materials,
+        user_defined_materials,
         buildup_params,
         buildup_alias_map,
         detectors,
@@ -60,7 +60,8 @@ fn main() -> Result<()> {
         Ok(r) => r,
         Err(_) => MaterialRegistry::new(),
     };
-    for (name, mat_input) in materials {
+    info!("Registering user defined materials...");
+    for (name, mat_input) in user_defined_materials {
         let def = mat_input.build(&name).into_diagnostic()?;
         registry.insert(name, def);
     }

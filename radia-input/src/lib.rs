@@ -46,7 +46,7 @@ pub struct SimulationInput {
     #[garde(dive)]
     pub world: world::WorldInput,
     #[garde(dive)]
-    pub materials: HashMap<String, material::MaterialInput>,
+    pub user_defined_materials: HashMap<String, material::UserDefinedMaterialInput>,
     #[garde(dive)]
     pub buildup_params: HashMap<String, Vec<buildup::GPParamsInput>>,
     #[garde(length(min = 1))]

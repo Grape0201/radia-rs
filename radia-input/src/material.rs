@@ -7,7 +7,7 @@ use crate::InputError;
 use crate::atomic_number::{deserialize_composition, validate_composition};
 
 #[derive(Serialize, Deserialize, Debug, Validate)]
-pub struct MaterialInput {
+pub struct UserDefinedMaterialInput {
     #[garde(range(min = 0.0))]
     pub density: f32,
     #[serde(deserialize_with = "deserialize_composition")]
@@ -15,7 +15,7 @@ pub struct MaterialInput {
     pub composition: HashMap<usize, f32>,
 }
 
-impl MaterialInput {
+impl UserDefinedMaterialInput {
     pub fn build(self, name: &str) -> Result<MaterialDef, InputError> {
         let mut sum = 0.0;
         for (&z, &f) in &self.composition {
@@ -31,7 +31,8 @@ impl MaterialInput {
         if (sum - 1.0).abs() > 0.05 {
             tracing::warn!(
                 "Weight fractions for material '{}' sum to {}, expected close to 1.0.",
-                name, sum
+                name,
+                sum
             );
         }
 
@@ -51,7 +52,7 @@ composition:
   8: 0.889
         "#;
 
-        let input: MaterialInput = serde_saphyr::from_str_valid(yaml).unwrap();
+        let input: UserDefinedMaterialInput = serde_saphyr::from_str_valid(yaml).unwrap();
         let def = input.build("Water").unwrap();
 
         let pd = def.partial_densities();
@@ -65,7 +66,7 @@ composition:
 composition:
   1: 1.0
         "#;
-        let input: Result<MaterialInput, _> = serde_saphyr::from_str_valid(yaml);
+        let input: Result<UserDefinedMaterialInput, _> = serde_saphyr::from_str_valid(yaml);
         assert!(input.is_err());
     }
 
@@ -75,7 +76,7 @@ composition:
 composition:
   0: 1.0
         "#;
-        let input: Result<MaterialInput, _> = serde_saphyr::from_str_valid(yaml);
+        let input: Result<UserDefinedMaterialInput, _> = serde_saphyr::from_str_valid(yaml);
         assert!(input.is_err());
     }
 }

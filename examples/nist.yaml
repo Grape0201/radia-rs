@@ -17,7 +17,7 @@ world:
         prs:
           - "shield_box"
           - "source_sphere"
-materials:
+user_defined_materials:
 buildup_params:
   WaterGP:
     - energy_mev: 1.0

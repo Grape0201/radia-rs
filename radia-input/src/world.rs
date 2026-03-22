@@ -68,7 +68,7 @@ impl WorldInput {
 
         for (name, p_conf) in self.primitives {
             if !used_primitive_names.contains(&name) {
-                eprintln!("Warning: Primitive '{}' is defined but never used.", name);
+                tracing::warn!("Primitive '{}' is defined but never used.", name);
                 continue;
             }
 

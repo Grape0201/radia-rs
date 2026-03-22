@@ -5,6 +5,8 @@ use radia_core::material::MaterialRegistry;
 use radia_core::physics::{GPBuildupProvider, MaterialPhysicsTable};
 use radia_input::SimulationInput;
 use std::env;
+use tracing::info;
+use tracing_subscriber::{EnvFilter, fmt};
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -13,8 +15,16 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    fmt()
+        .with_timer(tracing_subscriber::fmt::time::uptime())
+        .compact()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
     let input_path = &args[1];
-    println!("Loading input from {}", input_path);
+    info!("Loading input from {}", input_path);
 
     let sim_input = SimulationInput::from_yaml_file(input_path).into_diagnostic()?;
 
@@ -42,10 +52,10 @@ fn main() -> Result<()> {
         .map(|(i, name)| (name.clone(), i as u32))
         .collect();
 
-    println!("Building world...");
+    info!("Building world...");
     let world = world.build(&material_map).into_diagnostic()?;
 
-    println!("Building materials...");
+    info!("Building materials...");
     let mut registry = match load_material_registry_from_file("data/compositions.json") {
         Ok(r) => r,
         Err(_) => MaterialRegistry::new(),
@@ -55,27 +65,27 @@ fn main() -> Result<()> {
         registry.insert(name, def);
     }
 
-    println!("Building buildup parameters...");
+    info!("Building buildup parameters...");
     let mut gp_provider = GPBuildupProvider::new();
     for (name, params) in buildup_params {
         gp_provider.insert_data(name, params.into_iter().map(|p| p.into()).collect());
     }
 
-    println!("Loading physical datatables...");
+    info!("Loading physical datatables...");
     let provider = match JsonMassAttenuationProvider::from_file("data/elements.json") {
         Ok(p) => p,
         Err(_) => JsonMassAttenuationProvider::from_file("../data/elements.json")
             .expect("Failed to load elements.json (looked in 'data/elements.json' and '../data/elements.json')"),
     };
 
-    println!("Calculating dose rates...");
+    info!("Calculating dose rates...");
     let mut detector_doses = std::collections::HashMap::new();
 
     let energy_groups = source.energy_groups;
     let intensity_by_group = source.intensity_by_group;
     let srcs = source.shape.build();
 
-    println!("Generating material physics table for a source...");
+    info!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(
         &used_materials,
         &buildup_alias_map,
@@ -105,7 +115,7 @@ fn main() -> Result<()> {
 
     for (name, pos) in detectors {
         let dose_rate = detector_doses.get(&name).unwrap_or(&0.0);
-        println!(
+        info!(
             "Detector '{}' at {:?}: Dose Rate = {:.6e}",
             name, pos, dose_rate
         );

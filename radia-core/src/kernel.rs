@@ -164,6 +164,11 @@ where
     F: Fn(MaterialIndex, GroupIndex) -> f32 + Sync,
     B: Fn(MaterialIndex, GroupIndex, f32) -> f32 + Sync,
 {
+    tracing::info!(
+        "Starting parallel dose rate calculation for {} sources with chunk size {}",
+        sources.len(),
+        chunk_size
+    );
     sources
         .par_chunks(chunk_size)
         .map(|source_chunk| {

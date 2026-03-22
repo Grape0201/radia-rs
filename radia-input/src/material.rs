@@ -29,8 +29,8 @@ impl MaterialInput {
         }
 
         if (sum - 1.0).abs() > 0.05 {
-            eprintln!(
-                "Warning: Weight fractions for material '{}' sum to {}, expected close to 1.0.",
+            tracing::warn!(
+                "Weight fractions for material '{}' sum to {}, expected close to 1.0.",
                 name, sum
             );
         }

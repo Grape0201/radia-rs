@@ -864,7 +864,6 @@ dependencies = [
  "pprof",
  "radia-core",
  "radia-input",
- "rayon",
  "serde",
  "serde_json",
  "thiserror",
@@ -877,6 +876,7 @@ dependencies = [
  "criterion",
  "glam",
  "pprof",
+ "rayon",
  "thiserror",
 ]
 

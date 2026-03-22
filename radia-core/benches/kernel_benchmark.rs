@@ -1,8 +1,8 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
-use radia_cli::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_core::csg::{CSGNode, Cell, World};
+use radia_core::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::physics::GPBuildupProvider;
 use radia_core::primitive::Primitive;

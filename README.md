@@ -8,11 +8,8 @@ This repository is a Cargo workspace consisting of the following crates:
 
 - **`radia-core`**: Core calculation logic, geometry (CSG), and material handling.
   - MINIMAL dependencies.
-  - No dependencies on `rayon`.
-  - Suitable for use in environments where thread-based parallelism is not desired or needed.
 - **`radia-cli`**: CLI-specific logic and high-performance parallel kernel.
-  - Extends `radia-core` with `rayon`-based parallelization.
-  - Contains benchmarks and the main executable.
+  - Contains the main executable.
 - **`radia-input`**: Input handling for the simulation.
   - Handles YAML input files.
   - Produces robust output ready for verification.

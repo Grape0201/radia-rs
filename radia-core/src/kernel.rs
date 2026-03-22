@@ -1,10 +1,10 @@
 use glam::Vec3A;
 use rayon::prelude::*;
 
-use radia_core::csg::World;
-use radia_core::material::{GroupIndex, MaterialIndex};
-use radia_core::primitive::Ray;
-use radia_core::source::PointSource;
+use crate::csg::World;
+use crate::material::{GroupIndex, MaterialIndex};
+use crate::primitive::Ray;
+use crate::source::PointSource;
 
 /// Determine the appropriate buildup material ID for a ray path.
 ///
@@ -183,8 +183,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use radia_core::csg::{CSGNode, Cell};
-    use radia_core::primitive::Primitive;
+    use crate::csg::{CSGNode, Cell};
+    use crate::primitive::Primitive;
 
     #[test]
     fn test_unshielded_point_source_spectrum() {

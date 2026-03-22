@@ -1,6 +1,6 @@
 use miette::{IntoDiagnostic, Result};
-use radia_cli::kernel::calculate_dose_rate_parallel;
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
+use radia_core::kernel::calculate_dose_rate_parallel;
 use radia_core::material::MaterialRegistry;
 use radia_core::physics::{GPBuildupProvider, MaterialPhysicsTable};
 use radia_input::SimulationInput;

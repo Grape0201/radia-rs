@@ -165,7 +165,11 @@ impl MaterialPhysicsTable {
 
             // 2. Interpolate buildup models
             for &energy in energy_groups {
-                let model = buildup_provider.interpolate(buildup_source, energy)?;
+                let model = if buildup_source.eq_ignore_ascii_case("none") {
+                    BuildupModel::Constant(1.0)
+                } else {
+                    buildup_provider.interpolate(buildup_source, energy)?
+                };
                 buildup_models.push(model);
             }
         }

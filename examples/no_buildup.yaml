@@ -1,0 +1,48 @@
+world:
+  primitives:
+    source_sphere:
+      type: "Sphere"
+      center: [0.0, 0.0, 0.0]
+      radius: 2.0
+    shield_box:
+      type: "RectangularParallelPiped"
+      min: [-5.0, -5.0, -5.0]
+      max: [5.0, 5.0, 5.0]
+  cells:
+    - material_name: "Water"
+      csg: "source_sphere"
+    - material_name: "Iron"
+      csg:
+        op: "difference"
+        prs:
+          - "shield_box"
+          - "source_sphere"
+user_defined_materials:
+  Water:
+    density: 1.0
+    composition:
+      H: 0.112
+      8: 0.888
+  Iron:
+    density: 7.87
+    composition:
+      Fe: 1.0
+
+buildup_params:
+
+buildup_alias_map:
+  "Water": "none"
+  "Iron": "none"
+
+source:
+  type: "Point"
+  position: [0.0, 0.0, 0.0]
+  intensity: 1000.0
+  energy_groups: [1.0]
+  intensity_by_group: [1.0]
+
+conversion_factors: [1.0]
+
+detectors:
+  Det1: [10.0, 0.0, 0.0]
+  Det2: [20.0, 0.0, 0.0]

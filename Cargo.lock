@@ -928,7 +928,9 @@ dependencies = [
 name = "radia-report"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "glam",
+ "pprof",
  "radia-core",
  "serde",
  "serde_json",

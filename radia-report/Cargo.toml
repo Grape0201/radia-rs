@@ -8,3 +8,11 @@ radia-core = { path = "../radia-core" }
 glam.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+pprof.workspace = true
+
+[[bench]]
+name = "collector_benchmark"
+harness = false

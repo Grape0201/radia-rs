@@ -202,6 +202,78 @@ where
     total_dose
 }
 
+pub fn calculate_dose_rate_no_collector<F, B>(
+    get_mu: &F,
+    get_buildup: &B,
+    world: &World,
+    conversion_factors: &[f32],
+    intensity_by_group: &[f32],
+    detector_position: Vec3A,
+    sources: &[PointSource],
+) -> f32
+where
+    F: Fn(MaterialIndex, GroupIndex) -> f32,
+    B: Fn(MaterialIndex, GroupIndex, f32) -> f32,
+{
+    let mut total_dose = 0.0;
+    let num_groups = conversion_factors.len();
+    let mut segments_buffer = Vec::with_capacity(32);
+    let mut buffer_ts = Vec::with_capacity(64);
+    let mut buffer_merged_ts = Vec::with_capacity(64);
+    let mut segment_ots_buffer: Vec<(u32, f32)> = Vec::with_capacity(32);
+
+    for source in sources {
+        let diff = detector_position - source.position;
+        let distance_sq = diff.length_squared();
+        if distance_sq < 1e-10 { continue; }
+
+        let ray = Ray {
+            origin: source.position,
+            vector: diff,
+        };
+
+        world.get_ray_segments(
+            &ray,
+            &mut segments_buffer,
+            &mut buffer_ts,
+            &mut buffer_merged_ts,
+        );
+
+        let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
+        let mut source_dose = 0.0;
+
+        for ig in 0..num_groups {
+            let mut total_optical_thickness = 0.0;
+            segment_ots_buffer.clear();
+
+            for &(mat_id, length) in &segments_buffer {
+                let ot = get_mu(mat_id as MaterialIndex, ig as GroupIndex) * length;
+                total_optical_thickness += ot;
+                segment_ots_buffer.push((mat_id, ot));
+            }
+
+            let buildup_material_id = select_buildup_material(&segment_ots_buffer);
+
+            let buildup = get_buildup(
+                buildup_material_id,
+                ig as GroupIndex,
+                total_optical_thickness,
+            );
+            
+            let material_attenuation = (-total_optical_thickness).exp();
+            let uncollided_flux = material_attenuation * intensity_by_group[ig];
+            let uncollided_dose = conversion_factors[ig] * uncollided_flux;
+            let group_total_dose = uncollided_dose * buildup;
+
+            source_dose += group_total_dose;
+        }
+
+        total_dose += source.intensity * geometric_attenuation * source_dose;
+    }
+
+    total_dose
+}
+
 pub fn calculate_dose_rate_parallel<F, B>(
     get_mu: &F,
     get_buildup: &B,

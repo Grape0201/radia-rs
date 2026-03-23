@@ -62,7 +62,7 @@ fn main() -> Result<()> {
     };
     info!("Registering user defined materials...");
     for (name, mat_input) in user_defined_materials {
-        let def = mat_input.build(&name).into_diagnostic()?;
+        let def = mat_input.build();
         registry.insert(name, def);
     }
 

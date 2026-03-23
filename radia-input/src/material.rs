@@ -3,7 +3,6 @@ use radia_core::material::MaterialDef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::InputError;
 use crate::atomic_number::{deserialize_composition, validate_composition};
 
 #[derive(Serialize, Deserialize, Debug, Validate)]
@@ -16,27 +15,8 @@ pub struct UserDefinedMaterialInput {
 }
 
 impl UserDefinedMaterialInput {
-    pub fn build(self, name: &str) -> Result<MaterialDef, InputError> {
-        let mut sum = 0.0;
-        for (&z, &f) in &self.composition {
-            if z == 0 || z > 118 {
-                return Err(InputError::InvalidMaterial {
-                    name: name.to_string(),
-                    reason: format!("Invalid atomic number {}", z),
-                });
-            }
-            sum += f;
-        }
-
-        if (sum - 1.0).abs() > 0.05 {
-            tracing::warn!(
-                "Weight fractions for material '{}' sum to {}, expected close to 1.0.",
-                name,
-                sum
-            );
-        }
-
-        Ok(MaterialDef::new(self.composition, self.density))
+    pub fn build(self) -> MaterialDef {
+        MaterialDef::new(self.composition, self.density)
     }
 }
 
@@ -53,7 +33,7 @@ composition:
         "#;
 
         let input: UserDefinedMaterialInput = serde_saphyr::from_str_valid(yaml).unwrap();
-        let def = input.build("Water").unwrap();
+        let def = input.build();
 
         let pd = def.partial_densities();
         assert_eq!(pd[&1], 0.111);

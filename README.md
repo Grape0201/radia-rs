@@ -14,6 +14,9 @@ This repository is a Cargo workspace consisting of the following crates:
   - Handles YAML input files.
   - Produces robust output ready for verification.
   - Provides structural validation for the input files.
+- **`radia-report`**: Formatting and output logic.
+  - Generates detailed serialized reports (JSON/CSV) for regulatory compliance.
+  - Plugs into `radia-core` using zero-cost abstractions (`DoseCollector`).
 
 ### Input Validation Policy
 

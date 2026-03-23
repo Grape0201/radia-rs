@@ -1,0 +1,10 @@
+[package]
+name = "radia-report"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+radia-core = { path = "../radia-core" }
+glam.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true

@@ -6,6 +6,41 @@ use crate::material::{GroupIndex, MaterialIndex};
 use crate::primitive::Ray;
 use crate::source::PointSource;
 
+pub trait DoseCollector {
+    fn begin_detector(&mut self, position: Vec3A);
+    fn begin_source(&mut self, position: Vec3A, intensity: f32);
+    fn record_ray_segment(
+        &mut self,
+        material_id: u32,
+        physical_thickness: f32,
+        optical_thickness: f32,
+    );
+    fn record_buildup_material(&mut self, material_id: u32);
+    fn record_energy_group(
+        &mut self,
+        group_index: usize,
+        uncollided_flux: f32,
+        buildup: f32,
+        uncollided_dose: f32,
+        total_dose: f32,
+    );
+}
+
+#[derive(Default)]
+pub struct FastCollector;
+
+impl DoseCollector for FastCollector {
+    #[inline(always)]
+    fn begin_detector(&mut self, _: Vec3A) {}
+    #[inline(always)]
+    fn begin_source(&mut self, _: Vec3A, _: f32) {}
+    #[inline(always)]
+    fn record_ray_segment(&mut self, _: u32, _: f32, _: f32) {}
+    #[inline(always)]
+    fn record_buildup_material(&mut self, _: u32) {}
+    #[inline(always)]
+    fn record_energy_group(&mut self, _: usize, _: f32, _: f32, _: f32, _: f32) {}
+}
 /// Determine the appropriate buildup material ID for a ray path.
 ///
 /// Rule:
@@ -79,6 +114,7 @@ pub fn calculate_dose_rate<F, B>(
     intensity_by_group: &[f32],
     detector_position: Vec3A,
     sources: &[PointSource],
+    collector: &mut impl DoseCollector,
 ) -> f32
 where
     F: Fn(MaterialIndex, GroupIndex) -> f32,
@@ -91,8 +127,11 @@ where
     let mut buffer_merged_ts = Vec::with_capacity(64); // pre-allocate for performance
     let mut segment_ots_buffer: Vec<(u32, f32)> = Vec::with_capacity(32); // (material_id, ot)
 
+    collector.begin_detector(detector_position);
+
     // Loop over source division
     for source in sources {
+        collector.begin_source(source.position, source.intensity);
         let diff = detector_position - source.position;
 
         let distance_sq = diff.length_squared();
@@ -127,10 +166,12 @@ where
                 let ot = get_mu(mat_id as MaterialIndex, ig as GroupIndex) * length;
                 total_optical_thickness += ot;
                 segment_ots_buffer.push((mat_id, ot));
+                collector.record_ray_segment(mat_id, length, ot);
             }
 
             // 2. Determine the buildup material ID for this Ray and Energy Group using refined logic.
             let buildup_material_id = select_buildup_material(&segment_ots_buffer);
+            collector.record_buildup_material(buildup_material_id as u32);
 
             let buildup = get_buildup(
                 buildup_material_id,
@@ -139,9 +180,20 @@ where
             );
             let material_attenuation = (-total_optical_thickness).exp();
 
+            let uncollided_flux = material_attenuation * intensity_by_group[ig];
+            let uncollided_dose = conversion_factors[ig] * uncollided_flux;
+            let group_total_dose = uncollided_dose * buildup;
+
+            collector.record_energy_group(
+                ig,
+                uncollided_flux * geometric_attenuation * source.intensity,
+                buildup,
+                uncollided_dose * geometric_attenuation * source.intensity,
+                group_total_dose * geometric_attenuation * source.intensity,
+            );
+
             // flux to dose conversion
-            source_dose +=
-                conversion_factors[ig] * buildup * material_attenuation * intensity_by_group[ig];
+            source_dose += group_total_dose;
         }
 
         total_dose += source.intensity * geometric_attenuation * source_dose;
@@ -172,6 +224,7 @@ where
     sources
         .par_chunks(chunk_size)
         .map(|source_chunk| {
+            let mut collector = FastCollector::default();
             calculate_dose_rate(
                 get_mu,
                 get_buildup,
@@ -180,6 +233,7 @@ where
                 intensity_by_group,
                 detector_position,
                 source_chunk,
+                &mut collector,
             )
         })
         .sum()
@@ -212,6 +266,7 @@ mod tests {
         let conversion_factors = vec![1.0];
         let intensity_by_group = vec![1.0];
 
+        let mut collector = FastCollector::default();
         let dose = calculate_dose_rate(
             &get_mu,
             &get_buildup,
@@ -220,6 +275,7 @@ mod tests {
             &intensity_by_group,
             detector,
             &[source],
+            &mut collector,
         );
 
         let expected_geometric = 1.0 / (4.0 * std::f32::consts::PI * 100.0);
@@ -291,6 +347,7 @@ mod tests {
             ],
         };
 
+        let mut collector = FastCollector::default();
         let dose = calculate_dose_rate(
             &get_mu,
             &get_buildup,
@@ -299,6 +356,7 @@ mod tests {
             &intensity_by_group,
             detector,
             &[source],
+            &mut collector,
         );
 
         // Total OT = 10.0 + 1.0 = 11.0

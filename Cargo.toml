@@ -2,7 +2,8 @@
 members = [
     "radia-core",
     "radia-cli",
-    "radia-input"
+    "radia-input",
+    "radia-report"
 ]
 resolver = "2"
 

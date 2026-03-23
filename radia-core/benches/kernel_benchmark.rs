@@ -2,7 +2,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
 use radia_core::csg::{CSGNode, Cell, World};
-use radia_core::kernel::{calculate_dose_rate, calculate_dose_rate_parallel};
+use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::physics::GPBuildupProvider;
 use radia_core::primitive::Primitive;
@@ -145,6 +145,7 @@ fn benchmark_single(c: &mut Criterion) {
 
     c.bench_function("calculate_dose_rate", |b| {
         b.iter(|| {
+            let mut collector = FastCollector::default();
             calculate_dose_rate(
                 black_box(&get_mu),
                 black_box(&get_buildup),
@@ -153,6 +154,7 @@ fn benchmark_single(c: &mut Criterion) {
                 black_box(&intensity_by_group),
                 black_box(detector_position),
                 black_box(&sources),
+                &mut collector,
             )
         })
     });

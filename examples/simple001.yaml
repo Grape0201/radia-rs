@@ -28,25 +28,27 @@ user_defined_materials:
     composition:
       Fe: 1.0
 
-buildup_params:
-  WaterGP:
-    - energy_mev: 1.0
-      a: 0.1
-      b: 2.0
-      c: 0.5
-      d: 0.05
-      xk: 14.0
-  IronGP:
-    - energy_mev: 1.0
-      a: 0.15
-      b: 1.5
-      c: 0.6
-      d: 0.04
-      xk: 13.0
-
-buildup_alias_map:
-  "Water": "WaterGP"
-  "Iron": "IronGP"
+dose_quantity:
+  buildup_params:
+    WaterGP:
+      - energy_mev: 1.0
+        a: 0.1
+        b: 2.0
+        c: 0.5
+        d: 0.05
+        xk: 14.0
+    IronGP:
+      - energy_mev: 1.0
+        a: 0.15
+        b: 1.5
+        c: 0.6
+        d: 0.04
+        xk: 13.0
+  buildup_alias_map:
+    "Water": "WaterGP"
+    "Iron": "IronGP"
+  energy_groups: [1.0]
+  conversion_factors: [1.0]
 
 source:
   type: "Point"
@@ -54,8 +56,6 @@ source:
   intensity: 1000.0
   energy_groups: [1.0]
   intensity_by_group: [1.0]
-
-conversion_factors: [1.0]
 
 detectors:
   Det1: [10.0, 0.0, 0.0]

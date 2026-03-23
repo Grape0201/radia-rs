@@ -28,11 +28,13 @@ user_defined_materials:
     composition:
       Fe: 1.0
 
-buildup_params:
-
-buildup_alias_map:
-  "Water": "none"
-  "Iron": "none"
+dose_quantity:
+  buildup_params: {}
+  buildup_alias_map:
+    "Water": "none"
+    "Iron": "none"
+  energy_groups: [1.0]
+  conversion_factors: [1.0]
 
 source:
   type: "Point"
@@ -40,8 +42,6 @@ source:
   intensity: 1000.0
   energy_groups: [1.0]
   intensity_by_group: [1.0]
-
-conversion_factors: [1.0]
 
 detectors:
   Det1: [10.0, 0.0, 0.0]

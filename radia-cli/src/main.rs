@@ -27,16 +27,24 @@ fn main() -> Result<()> {
     info!("Loading input from {}", input_path);
 
     let sim_input = SimulationInput::from_yaml_file(input_path).into_diagnostic()?;
+    let conversion_factors = sim_input
+        .get_interpolated_conversion_factors()
+        .into_diagnostic()?;
 
     let SimulationInput {
         world,
         user_defined_materials,
-        buildup_params,
-        buildup_alias_map,
+        dose_quantity,
         detectors,
-        conversion_factors,
         source,
     } = sim_input;
+
+    let radia_input::DoseQuantityInput {
+        buildup_params,
+        buildup_alias_map,
+        energy_groups: _,
+        conversion_factors: _,
+    } = dose_quantity;
 
     let mut used_materials: Vec<String> = world
         .cells

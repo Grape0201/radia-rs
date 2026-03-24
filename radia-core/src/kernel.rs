@@ -11,7 +11,7 @@ pub trait DoseCollector {
     fn begin_source(&mut self, position: Vec3A, intensity: f32);
     fn record_ray_segment(
         &mut self,
-        material_id: u32,
+        material_id: Option<u32>,
         physical_thickness: f32,
         optical_thickness: f32,
     );
@@ -35,7 +35,7 @@ impl DoseCollector for FastCollector {
     #[inline(always)]
     fn begin_source(&mut self, _: Vec3A, _: f32) {}
     #[inline(always)]
-    fn record_ray_segment(&mut self, _: u32, _: f32, _: f32) {}
+    fn record_ray_segment(&mut self, _: Option<u32>, _: f32, _: f32) {}
     #[inline(always)]
     fn record_buildup_material(&mut self, _: u32) {}
     #[inline(always)]
@@ -163,10 +163,12 @@ where
 
             // 1. Calculate optical thickness for each segment and total
             for &(mat_id, length) in &segments_buffer {
-                let ot = get_mu(mat_id as MaterialIndex, ig as GroupIndex) * length;
-                total_optical_thickness += ot;
-                segment_ots_buffer.push((mat_id, ot));
-                collector.record_ray_segment(mat_id, length, ot);
+                if let Some(mat_id) = mat_id {
+                    let ot = get_mu(mat_id as MaterialIndex, ig as GroupIndex) * length;
+                    total_optical_thickness += ot;
+                    segment_ots_buffer.push((mat_id, ot));
+                }
+                collector.record_ray_segment(mat_id, length, 0.0);
             }
 
             // 2. Determine the buildup material ID for this Ray and Energy Group using refined logic.
@@ -225,7 +227,9 @@ where
     for source in sources {
         let diff = detector_position - source.position;
         let distance_sq = diff.length_squared();
-        if distance_sq < 1e-10 { continue; }
+        if distance_sq < 1e-10 {
+            continue;
+        }
 
         let ray = Ray {
             origin: source.position,
@@ -247,6 +251,9 @@ where
             segment_ots_buffer.clear();
 
             for &(mat_id, length) in &segments_buffer {
+                let Some(mat_id) = mat_id else {
+                    continue;
+                };
                 let ot = get_mu(mat_id as MaterialIndex, ig as GroupIndex) * length;
                 total_optical_thickness += ot;
                 segment_ots_buffer.push((mat_id, ot));
@@ -259,7 +266,7 @@ where
                 ig as GroupIndex,
                 total_optical_thickness,
             );
-            
+
             let material_attenuation = (-total_optical_thickness).exp();
             let uncollided_flux = material_attenuation * intensity_by_group[ig];
             let uncollided_dose = conversion_factors[ig] * uncollided_flux;

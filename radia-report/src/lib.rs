@@ -1,6 +1,6 @@
-use serde::Serialize;
 use glam::Vec3A;
 use radia_core::kernel::DoseCollector;
+use serde::Serialize;
 
 /// Metadata for a simulation run.
 #[derive(Debug, Clone, Serialize, Default)]
@@ -107,7 +107,7 @@ impl DoseCollector for DetailedCollector {
 
     fn record_ray_segment(
         &mut self,
-        material_id: u32,
+        material_id: Option<u32>,
         physical_thickness: f32,
         optical_thickness: f32,
     ) {
@@ -115,8 +115,8 @@ impl DoseCollector for DetailedCollector {
             // To avoid duplicating per energy group, we just clear and keep the last energy group's segments for now.
             // A more robust implementation might map this by energy group.
             res.ray_path_summary.push(PathSegmentSummary {
-                material_id,
-                material_name: format!("Material_{}", material_id),
+                material_id: material_id.unwrap_or(u32::MAX),
+                material_name: format!("Material_{}", material_id.unwrap_or(u32::MAX)),
                 physical_thickness,
                 optical_thickness,
             });

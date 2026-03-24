@@ -79,15 +79,15 @@ impl World {
     pub fn get_ray_segments(
         &self,
         ray: &Ray,
-        segments: &mut Vec<(u32, f32)>, // result buffer: (material_id, length)
-        buf_ts: &mut Vec<f32>,          // intersection points buffer
-        buf_merged_ts: &mut Vec<f32>,   // merged intersection points buffer
+        segments: &mut Vec<(Option<u32>, f32)>, // result buffer: (material_id, length)
+        buf_ts: &mut Vec<f32>,                  // intersection points buffer
+        buf_merged_ts: &mut Vec<f32>,           // merged intersection points buffer
     ) {
         segments.clear();
         buf_ts.clear();
         buf_merged_ts.clear();
-        let dir_len = ray.vector.length();
-        if dir_len <= EPSILON {
+        let ray_length = ray.vector.length();
+        if ray_length <= EPSILON {
             return;
         }
 
@@ -117,19 +117,21 @@ impl World {
         for i in 0..buf_merged_ts.len().saturating_sub(1) {
             let t0 = &buf_merged_ts[i];
             let t1 = buf_merged_ts[i + 1];
+            let length = (t1 - t0) * ray_length;
 
             let t_mid = (t0 + t1) * 0.5;
             let p_mid = ray.origin + ray.vector * t_mid;
 
+            let mut matid = None;
             for cell in &self.cells {
                 if cell.csg.contains(&p_mid, &self.primitives) {
-                    let length = (t1 - t0) * dir_len;
-                    segments.push((cell.material_id, length));
+                    matid = Some(cell.material_id);
                     // Stop checking cells once we find the one containing this segment
                     // Assuming cells do not overlap
                     break;
                 }
             }
+            segments.push((matid, length));
         }
     }
 
@@ -186,5 +188,53 @@ mod tests {
             }],
         };
         assert!(world.check_primitive_indices().is_err());
+    }
+
+    #[test]
+    fn test_get_ray_segments_empty() {
+        let world = World {
+            primitives: vec![],
+            cells: vec![],
+        };
+        let ray = Ray {
+            origin: Vec3A::ZERO,
+            vector: Vec3A::ZERO,
+        };
+        let mut segments = Vec::new();
+        let mut buf_ts = Vec::new();
+        let mut buf_merged_ts = Vec::new();
+        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_merged_ts);
+        assert!(segments.is_empty());
+        assert!(buf_ts.is_empty());
+        assert!(buf_merged_ts.is_empty());
+    }
+
+    #[test]
+    fn test_get_ray_segments_one_sphere() {
+        let world = World {
+            primitives: vec![Primitive::Sphere {
+                center: Vec3A::ZERO,
+                radius2: 1.0,
+            }],
+            cells: vec![Cell {
+                csg: CSGNode::Primitive(0),
+                material_id: 0,
+            }],
+        };
+        let ray = Ray {
+            origin: Vec3A::ZERO,
+            vector: Vec3A::from([3.0, 0.0, 0.0]),
+        };
+        let mut segments = Vec::new();
+        let mut buf_ts = Vec::new();
+        let mut buf_merged_ts = Vec::new();
+        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_merged_ts);
+        assert_eq!(segments.len(), 2);
+        // in sphere, material_id == 0
+        assert_eq!(segments[0].0, Some(0));
+        assert!((segments[0].1 - 1.0).abs() < EPSILON);
+        // out of sphere, material_id == None
+        assert_eq!(segments[1].0, None);
+        assert!((segments[1].1 - 2.0).abs() < EPSILON);
     }
 }

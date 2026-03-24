@@ -1,7 +1,7 @@
 use miette::{IntoDiagnostic, Result};
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
 use radia_core::kernel::calculate_dose_rate_parallel;
-use radia_core::material::MaterialRegistry;
+use radia_core::material::{MaterialIndex, MaterialRegistry};
 use radia_core::physics::{GPBuildupProvider, MaterialPhysicsTable};
 use radia_input::SimulationInput;
 use std::env;
@@ -54,10 +54,10 @@ fn main() -> Result<()> {
     used_materials.sort();
     used_materials.dedup();
 
-    let material_map: std::collections::HashMap<String, u32> = used_materials
+    let material_map: std::collections::HashMap<String, MaterialIndex> = used_materials
         .iter()
         .enumerate()
-        .map(|(i, name)| (name.clone(), i as u32))
+        .map(|(i, name)| (name.clone(), i as MaterialIndex))
         .collect();
 
     info!("Building world...");

@@ -1,4 +1,5 @@
 use crate::constants::{EPSILON, T_EPSILON};
+use crate::material::MaterialIndex;
 use crate::primitive::{Primitive, Ray};
 use glam::Vec3A;
 
@@ -67,7 +68,7 @@ impl CSGNode {
 
 pub struct Cell {
     pub csg: CSGNode,
-    pub material_id: u32,
+    pub material_id: MaterialIndex,
 }
 
 pub struct World {
@@ -79,9 +80,9 @@ impl World {
     pub fn get_ray_segments(
         &self,
         ray: &Ray,
-        segments: &mut Vec<(Option<u32>, f32)>, // result buffer: (material_id, length)
-        buf_ts: &mut Vec<f32>,                  // intersection points buffer
-        buf_merged_ts: &mut Vec<f32>,           // merged intersection points buffer
+        segments: &mut Vec<(Option<MaterialIndex>, f32)>, // result buffer: (material_id, length)
+        buf_ts: &mut Vec<f32>,                            // intersection points buffer
+        buf_merged_ts: &mut Vec<f32>,                     // merged intersection points buffer
     ) {
         segments.clear();
         buf_ts.clear();

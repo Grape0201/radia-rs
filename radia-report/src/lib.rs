@@ -1,5 +1,6 @@
 use glam::Vec3A;
 use radia_core::kernel::DoseCollector;
+use radia_core::material::MaterialIndex;
 use serde::Serialize;
 
 /// Metadata for a simulation run.
@@ -22,7 +23,7 @@ pub struct PhysicsSummary {
 /// Information about a ray path segment.
 #[derive(Debug, Clone, Serialize)]
 pub struct PathSegmentSummary {
-    pub material_id: u32,
+    pub material_id: MaterialIndex,
     pub material_name: String,
     pub physical_thickness: f32,
     pub optical_thickness: f32,
@@ -107,7 +108,7 @@ impl DoseCollector for DetailedCollector {
 
     fn record_ray_segment(
         &mut self,
-        material_id: Option<u32>,
+        material_id: Option<MaterialIndex>,
         physical_thickness: f32,
         optical_thickness: f32,
     ) {
@@ -115,17 +116,17 @@ impl DoseCollector for DetailedCollector {
             // To avoid duplicating per energy group, we just clear and keep the last energy group's segments for now.
             // A more robust implementation might map this by energy group.
             res.ray_path_summary.push(PathSegmentSummary {
-                material_id: material_id.unwrap_or(u32::MAX),
-                material_name: format!("Material_{}", material_id.unwrap_or(u32::MAX)),
+                material_id: material_id.unwrap_or(MaterialIndex::MAX),
+                material_name: format!("Material_{}", material_id.unwrap_or(MaterialIndex::MAX)),
                 physical_thickness,
                 optical_thickness,
             });
         }
     }
 
-    fn record_buildup_material(&mut self, material_id: u32) {
+    fn record_buildup_material(&mut self, material_id: Option<usize>) {
         if let Some(res) = self.report.results.last_mut() {
-            res.buildup_material_name = format!("Material_{}", material_id);
+            res.buildup_material_name = format!("Material_{}", material_id.unwrap_or(usize::MAX));
         }
     }
 

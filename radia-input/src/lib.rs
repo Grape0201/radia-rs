@@ -45,7 +45,7 @@ pub enum InputError {
 pub struct DoseQuantityInput {
     #[garde(dive)]
     pub buildup_params: HashMap<String, Vec<buildup::GPParamsInput>>,
-    #[garde(length(min = 1))]
+    #[garde(skip)]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
     #[garde(custom(is_all_zero_or_more), length(min = 1))]
     pub energy_groups: Vec<f32>,
@@ -99,26 +99,29 @@ impl SimulationInput {
         let qs_cf = &self.dose_quantity.conversion_factors;
         let src_e = &self.source.energy_groups;
 
-        Ok(src_e.iter().map(|&e| {
-            // Find the proper interval for interpolation
-            if e <= qs_e[0] {
-                qs_cf[0]
-            } else if e >= *qs_e.last().unwrap() {
-                *qs_cf.last().unwrap()
-            } else {
-                let mut idx = 0;
-                while idx < qs_e.len() - 1 && qs_e[idx + 1] < e {
-                    idx += 1;
-                }
-                
-                let e1 = qs_e[idx];
-                let e2 = qs_e[idx + 1];
-                let f1 = qs_cf[idx];
-                let f2 = qs_cf[idx + 1];
+        Ok(src_e
+            .iter()
+            .map(|&e| {
+                // Find the proper interval for interpolation
+                if e <= qs_e[0] {
+                    qs_cf[0]
+                } else if e >= *qs_e.last().unwrap() {
+                    *qs_cf.last().unwrap()
+                } else {
+                    let mut idx = 0;
+                    while idx < qs_e.len() - 1 && qs_e[idx + 1] < e {
+                        idx += 1;
+                    }
 
-                // Linear interpolation: f(e) = f1 + (e - e1) * (f2 - f1) / (e2 - e1)
-                f1 + (e - e1) * (f2 - f1) / (e2 - e1)
-            }
-        }).collect())
+                    let e1 = qs_e[idx];
+                    let e2 = qs_e[idx + 1];
+                    let f1 = qs_cf[idx];
+                    let f2 = qs_cf[idx + 1];
+
+                    // Linear interpolation: f(e) = f1 + (e - e1) * (f2 - f1) / (e2 - e1)
+                    f1 + (e - e1) * (f2 - f1) / (e2 - e1)
+                }
+            })
+            .collect())
     }
 }

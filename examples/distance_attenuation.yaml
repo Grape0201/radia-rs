@@ -1,0 +1,22 @@
+world:
+  primitives:
+  cells:
+
+dose_quantity:
+  buildup_params: {}
+  buildup_alias_map:
+  energy_groups: [1.0]
+  conversion_factors: [1.0]
+
+user_defined_materials:
+
+source:
+  type: "Point"
+  position: [0.0, 0.0, 0.0]
+  intensity: 1.0
+  energy_groups: [1.0]
+  intensity_by_group: [1.0]
+
+detectors:
+  Det1: [10.0, 0.0, 0.0]  # 1/4/pi/10^2 = 0.007957747154591797
+  Det2: [20.0, 0.0, 0.0]  # 1/4/pi/20^2 = 0.0019894367886479492

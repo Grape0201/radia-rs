@@ -1,6 +1,7 @@
 use garde::Validate;
 use glam::Vec3A;
 use radia_core::csg::{CSGNode, Cell, World};
+use radia_core::material::MaterialIndex;
 use radia_core::primitive::Primitive;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -10,9 +11,9 @@ use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
 
 #[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct WorldInput {
-    #[garde(length(min = 1))]
+    #[garde(dive)]
     pub primitives: HashMap<String, PrimitiveInput>,
-    #[garde(length(min = 1))]
+    #[garde(dive)]
     pub cells: Vec<CellInput>,
 }
 
@@ -43,21 +44,30 @@ pub enum PrimitiveInput {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 pub struct CellInput {
+    #[garde(skip)]
     pub material_name: String,
+    #[garde(dive)]
     pub csg: CSGInput,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Validate)]
 #[serde(untagged)]
 pub enum CSGInput {
-    Operation { op: String, prs: Vec<CSGInput> },
-    Name(String),
+    #[garde(skip)]
+    Operation {
+        #[garde(skip)]
+        op: String,
+        #[garde(dive)]
+        prs: Vec<CSGInput>,
+    },
+    #[garde(skip)]
+    Name(#[garde(skip)] String),
 }
 
 impl WorldInput {
-    pub fn build(self, material_map: &HashMap<String, u32>) -> Result<World, InputError> {
+    pub fn build(self, material_map: &HashMap<String, MaterialIndex>) -> Result<World, InputError> {
         let mut used_primitive_names = std::collections::HashSet::new();
         for c_conf in &self.cells {
             collect_used_primitives(&c_conf.csg, &mut used_primitive_names);

@@ -11,11 +11,11 @@ pub trait DoseCollector {
     fn begin_source(&mut self, position: Vec3A, intensity: f32);
     fn record_ray_segment(
         &mut self,
-        material_id: Option<u32>,
+        material_id: Option<MaterialIndex>,
         physical_thickness: f32,
         optical_thickness: f32,
     );
-    fn record_buildup_material(&mut self, material_id: u32);
+    fn record_buildup_material(&mut self, material_id: Option<MaterialIndex>);
     fn record_energy_group(
         &mut self,
         group_index: usize,
@@ -35,9 +35,9 @@ impl DoseCollector for FastCollector {
     #[inline(always)]
     fn begin_source(&mut self, _: Vec3A, _: f32) {}
     #[inline(always)]
-    fn record_ray_segment(&mut self, _: Option<u32>, _: f32, _: f32) {}
+    fn record_ray_segment(&mut self, _: Option<MaterialIndex>, _: f32, _: f32) {}
     #[inline(always)]
-    fn record_buildup_material(&mut self, _: u32) {}
+    fn record_buildup_material(&mut self, _: Option<MaterialIndex>) {}
     #[inline(always)]
     fn record_energy_group(&mut self, _: usize, _: f32, _: f32, _: f32, _: f32) {}
 }
@@ -47,9 +47,9 @@ impl DoseCollector for FastCollector {
 /// 1. Group segments into contiguous blocks of the same material.
 /// 2. Compare the last block (closest to detector) with the previous distinct material block.
 /// 3. If the previous block's optical thickness is larger than the last block's, adopt the previous material.
-pub fn select_buildup_material(segment_ots: &[(u32, f32)]) -> MaterialIndex {
+pub fn select_buildup_material(segment_ots: &[(MaterialIndex, f32)]) -> Option<MaterialIndex> {
     if segment_ots.is_empty() {
-        return 0;
+        return None;
     }
 
     // Traverse from detector back to source to find the last two distinct layers
@@ -87,11 +87,11 @@ pub fn select_buildup_material(segment_ots: &[(u32, f32)]) -> MaterialIndex {
     #[allow(clippy::collapsible_if)]
     if let Some(pmid) = prev_mat_id {
         if prev_layer_ot > last_layer_ot {
-            return pmid as MaterialIndex;
+            return Some(pmid as MaterialIndex);
         }
     }
 
-    last_mat_id as MaterialIndex
+    Some(last_mat_id as MaterialIndex)
 }
 
 /// Calculate the total integrated dose rate from multiple point sources over an energy spectrum.
@@ -125,7 +125,7 @@ where
     let mut segments_buffer = Vec::with_capacity(32); // pre-allocate for performance
     let mut buffer_ts = Vec::with_capacity(64); // pre-allocate for performance
     let mut buffer_merged_ts = Vec::with_capacity(64); // pre-allocate for performance
-    let mut segment_ots_buffer: Vec<(u32, f32)> = Vec::with_capacity(32); // (material_id, ot)
+    let mut segment_ots_buffer: Vec<(MaterialIndex, f32)> = Vec::with_capacity(32); // (material_id, ot)
 
     collector.begin_detector(detector_position);
 
@@ -173,13 +173,13 @@ where
 
             // 2. Determine the buildup material ID for this Ray and Energy Group using refined logic.
             let buildup_material_id = select_buildup_material(&segment_ots_buffer);
-            collector.record_buildup_material(buildup_material_id as u32);
+            collector.record_buildup_material(buildup_material_id);
 
-            let buildup = get_buildup(
-                buildup_material_id,
-                ig as GroupIndex,
-                total_optical_thickness,
-            );
+            let buildup = if let Some(mat_id) = buildup_material_id {
+                get_buildup(mat_id, ig as GroupIndex, total_optical_thickness)
+            } else {
+                1.0
+            };
             let material_attenuation = (-total_optical_thickness).exp();
 
             let uncollided_flux = material_attenuation * intensity_by_group[ig];
@@ -222,7 +222,7 @@ where
     let mut segments_buffer = Vec::with_capacity(32);
     let mut buffer_ts = Vec::with_capacity(64);
     let mut buffer_merged_ts = Vec::with_capacity(64);
-    let mut segment_ots_buffer: Vec<(u32, f32)> = Vec::with_capacity(32);
+    let mut segment_ots_buffer: Vec<(MaterialIndex, f32)> = Vec::with_capacity(32);
 
     for source in sources {
         let diff = detector_position - source.position;
@@ -261,11 +261,11 @@ where
 
             let buildup_material_id = select_buildup_material(&segment_ots_buffer);
 
-            let buildup = get_buildup(
-                buildup_material_id,
-                ig as GroupIndex,
-                total_optical_thickness,
-            );
+            let buildup = if let Some(mat_id) = buildup_material_id {
+                get_buildup(mat_id, ig as GroupIndex, total_optical_thickness)
+            } else {
+                1.0
+            };
 
             let material_attenuation = (-total_optical_thickness).exp();
             let uncollided_flux = material_attenuation * intensity_by_group[ig];
@@ -365,23 +365,26 @@ mod tests {
     #[test]
     fn test_select_buildup_material() {
         // Simple case: one material
-        assert_eq!(select_buildup_material(&[(0, 10.0)]), 0);
+        assert_eq!(select_buildup_material(&[(0, 10.0)]), Some(0));
 
         // Two materials: last is thicker
-        assert_eq!(select_buildup_material(&[(0, 1.0), (1, 10.0)]), 1);
+        assert_eq!(select_buildup_material(&[(0, 1.0), (1, 10.0)]), Some(1));
 
         // Two materials: previous is thicker
-        assert_eq!(select_buildup_material(&[(0, 10.0), (1, 1.0)]), 0);
+        assert_eq!(select_buildup_material(&[(0, 10.0), (1, 1.0)]), Some(0));
 
         // Contiguous segments grouping
         assert_eq!(
             select_buildup_material(&[(0, 5.0), (0, 6.0), (1, 5.0), (1, 5.0)]),
-            0 // OT1=11 > OT2=10
+            Some(0) // OT1=11 > OT2=10
         );
 
         // Gap with same material: [M1, M2, M1]
         // Last layer is M1, previous layer is M2.
-        assert_eq!(select_buildup_material(&[(0, 10.0), (1, 5.0), (0, 1.0)]), 1); // OT(M2)=5 > OT(M1-last)=1
+        assert_eq!(
+            select_buildup_material(&[(0, 10.0), (1, 5.0), (0, 1.0)]),
+            Some(1)
+        ); // OT(M2)=5 > OT(M1-last)=1
     }
 
     #[test]

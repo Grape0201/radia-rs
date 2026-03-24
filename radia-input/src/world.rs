@@ -9,11 +9,13 @@ use std::collections::HashMap;
 use crate::InputError;
 use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Default)]
 pub struct WorldInput {
     #[garde(dive)]
+    #[serde(default)]
     pub primitives: HashMap<String, PrimitiveInput>,
     #[garde(dive)]
+    #[serde(default)]
     pub cells: Vec<CellInput>,
 }
 

@@ -1,18 +1,10 @@
 # demonstrates the calculation of effective dose rate constant for Co-60
 # need some math to calculate the expected value
 
-world:
-  primitives:
-  cells:
-
 dose_quantity:
-  buildup_params: {}
-  buildup_alias_map:
   # E(AP) conversion factor [pSv cm2]
   energy_groups: [0.8, 1.0, 1.117, 1.33, 1.5]
   conversion_factors: [3.73, 4.49, 4.9, 5.6, 6.12]
-
-user_defined_materials:
 
 source:
   type: "Point"

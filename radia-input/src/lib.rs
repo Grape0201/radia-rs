@@ -44,8 +44,10 @@ pub enum InputError {
 #[derive(Deserialize, Debug, Validate)]
 pub struct DoseQuantityInput {
     #[garde(dive)]
+    #[serde(default)]
     pub buildup_params: HashMap<String, Vec<buildup::GPParamsInput>>,
     #[garde(skip)]
+    #[serde(default)]
     pub buildup_alias_map: std::collections::HashMap<String, String>,
     #[garde(custom(is_all_zero_or_more), length(min = 1))]
     pub energy_groups: Vec<f32>,
@@ -56,8 +58,10 @@ pub struct DoseQuantityInput {
 #[derive(Deserialize, Debug, Validate)]
 pub struct SimulationInput {
     #[garde(dive)]
+    #[serde(default)]
     pub world: world::WorldInput,
     #[garde(dive)]
+    #[serde(default)]
     pub user_defined_materials: HashMap<String, material::UserDefinedMaterialInput>,
     #[garde(dive)]
     pub dose_quantity: DoseQuantityInput,

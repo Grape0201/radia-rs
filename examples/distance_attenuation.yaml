@@ -1,14 +1,8 @@
-world:
-  primitives:
-  cells:
+# demonstrates the calculation of distance attenuation
 
 dose_quantity:
-  buildup_params: {}
-  buildup_alias_map:
   energy_groups: [1.0]
   conversion_factors: [1.0]
-
-user_defined_materials:
 
 source:
   type: "Point"

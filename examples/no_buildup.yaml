@@ -17,6 +17,7 @@ world:
         prs:
           - "shield_box"
           - "source_sphere"
+
 user_defined_materials:
   Water:
     density: 1.0
@@ -29,7 +30,6 @@ user_defined_materials:
       Fe: 1.0
 
 dose_quantity:
-  buildup_params: {}
   buildup_alias_map:
     "Water": "none"
     "Iron": "none"

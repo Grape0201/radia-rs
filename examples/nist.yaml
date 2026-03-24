@@ -17,7 +17,7 @@ world:
         prs:
           - "shield_box"
           - "source_sphere"
-user_defined_materials:
+
 dose_quantity:
   buildup_params:
     WaterGP:

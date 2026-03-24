@@ -4,6 +4,7 @@ use crate::primitive::{Primitive, Ray};
 use glam::Vec3A;
 
 /// Flatten `CSGNode` into a list of instructions (Reverse Polish Notation)
+#[derive(PartialEq, Debug)]
 pub enum Instruction {
     Union,
     Intersection,

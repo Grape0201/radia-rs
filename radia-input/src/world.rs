@@ -1,6 +1,6 @@
 use garde::Validate;
 use glam::Vec3A;
-use radia_core::csg::{CSGNode, Cell, World};
+use radia_core::csg::{Cell, FlatCSG, Instruction, World};
 use radia_core::material::MaterialIndex;
 use radia_core::primitive::Primitive;
 use serde::{Deserialize, Serialize};
@@ -123,8 +123,12 @@ impl WorldInput {
                 .get(&c_conf.material_name)
                 .ok_or_else(|| InputError::MaterialNotFound(c_conf.material_name.clone()))?;
 
-            let csg = build_csg_node(&c_conf.csg, &primitive_map)?;
-            cells.push(Cell { csg, material_id });
+            let mut instructions = Vec::new();
+            build_csg_node(&c_conf.csg, &primitive_map, &mut instructions)?;
+            cells.push(Cell {
+                csg: FlatCSG { instructions },
+                material_id,
+            });
         }
 
         Ok(World { primitives, cells })
@@ -147,13 +151,14 @@ fn collect_used_primitives(config: &CSGInput, used: &mut std::collections::HashS
 fn build_csg_node(
     config: &CSGInput,
     primitive_map: &HashMap<String, usize>,
-) -> Result<CSGNode, InputError> {
+    instructions: &mut Vec<Instruction>,
+) -> Result<(), InputError> {
     match config {
         CSGInput::Name(name) => {
             let id = *primitive_map
                 .get(name)
                 .ok_or_else(|| InputError::PrimitiveNotFound(name.clone()))?;
-            Ok(CSGNode::Primitive(id))
+            instructions.push(Instruction::PushPrimitive(id));
         }
         CSGInput::Operation { op, prs } => {
             if prs.is_empty() {
@@ -161,39 +166,31 @@ fn build_csg_node(
             }
             match op.as_str() {
                 "union" | "outer" => {
-                    let mut node = build_csg_node(&prs[0], primitive_map)?;
-                    for p in &prs[1..] {
-                        node = CSGNode::Union(
-                            Box::new(node),
-                            Box::new(build_csg_node(p, primitive_map)?),
-                        );
+                    // TODO: check length of prs
+                    for p in prs {
+                        build_csg_node(p, primitive_map, instructions)?;
                     }
-                    Ok(node)
+                    instructions.push(Instruction::Union);
                 }
                 "intersection" | "inner" => {
-                    let mut node = build_csg_node(&prs[0], primitive_map)?;
-                    for p in &prs[1..] {
-                        node = CSGNode::Intersection(
-                            Box::new(node),
-                            Box::new(build_csg_node(p, primitive_map)?),
-                        );
+                    // TODO: check length of prs
+                    for p in prs {
+                        build_csg_node(p, primitive_map, instructions)?;
                     }
-                    Ok(node)
+                    instructions.push(Instruction::Intersection);
                 }
                 "difference" => {
-                    let mut node = build_csg_node(&prs[0], primitive_map)?;
-                    for p in &prs[1..] {
-                        node = CSGNode::Difference(
-                            Box::new(node),
-                            Box::new(build_csg_node(p, primitive_map)?),
-                        );
+                    // TODO: check length of prs
+                    for p in prs {
+                        build_csg_node(p, primitive_map, instructions)?;
                     }
-                    Ok(node)
+                    instructions.push(Instruction::Difference);
                 }
-                _ => Err(InputError::UnknownCsgOperation(op.clone())),
+                _ => return Err(InputError::UnknownCsgOperation(op.clone())),
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -202,19 +199,32 @@ mod tests {
 
     #[test]
     fn test_deserialize_world_input() {
-        let json = r#"{
-            "primitives": {
-                "unused": {"type": "Sphere", "center": [1.0, 1.0, 1.0], "radius": 1.0},
-                "source": {"type": "Sphere", "center": [0.0, 0.0, 0.0], "radius": 2.0},
-                "whole_world": {"type": "RectangularParallelPiped", "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 1.0]}
-            },
-            "cells": [
-                {"material_name": "Water", "csg": {"op": "inner", "prs": ["source"]}},
-                {"material_name": "Air", "csg": {"op": "difference", "prs": ["whole_world", "source"]}}
-            ]
-        }"#;
+        let yaml = r#"
+primitives: 
+  unused: 
+    type: Sphere
+    center: [1.0, 1.0, 1.0]
+    radius: 1.0
+  source: 
+    type: Sphere
+    center: [0.0, 0.0, 0.0]
+    radius: 2.0
+  whole_world: 
+    type: RectangularParallelPiped
+    min: [0.0, 0.0, 0.0]
+    max: [1.0, 1.0, 1.0]
+cells: 
+  - material_name: Water
+    csg: source
+  - material_name: Air
+    csg:
+      op: difference
+      prs:
+        - whole_world
+        - source
+"#;
 
-        let input: WorldInput = serde_json::from_str(json).unwrap();
+        let input: WorldInput = serde_saphyr::from_str_valid(yaml).unwrap();
         assert_eq!(input.primitives.len(), 3);
         assert_eq!(input.cells.len(), 2);
 
@@ -227,6 +237,23 @@ mod tests {
         assert_eq!(world.cells.len(), 2);
         assert_eq!(world.cells[0].material_id, 0); // Water
         assert_eq!(world.cells[1].material_id, 1); // Air
+        let (source_pid, whole_world_pid) = match world.primitives[0] {
+            Primitive::Sphere { .. } => (0, 1),
+            _ => (1, 0),
+        };
+
+        assert_eq!(
+            world.cells[0].csg.instructions,
+            vec![Instruction::PushPrimitive(source_pid)]
+        );
+        assert_eq!(
+            world.cells[1].csg.instructions,
+            vec![
+                Instruction::PushPrimitive(whole_world_pid),
+                Instruction::PushPrimitive(source_pid),
+                Instruction::Difference
+            ]
+        );
     }
 
     #[test]
@@ -260,5 +287,31 @@ cells:
 
         let input: Result<WorldInput, _> = serde_saphyr::from_str_valid(yaml);
         assert!(input.is_ok());
+    }
+
+    #[test]
+    fn test_complicated_csg() {
+        let yaml = r#"
+primitives: 
+  s1: { type: Sphere, center: [0.0, 0.0, 0.0], radius: 1.0 }
+  s2: { type: Sphere, center: [1.0, 0.0, 0.0], radius: 1.0 }
+  s3: { type: Sphere, center: [2.0, 0.0, 0.0], radius: 1.0 }
+  s4: { type: Sphere, center: [3.0, 0.0, 0.0], radius: 1.0 }
+  s5: { type: Sphere, center: [4.0, 0.0, 0.0], radius: 1.0 }
+  s6: { type: Sphere, center: [5.0, 0.0, 0.0], radius: 1.0 }
+  s7: { type: Sphere, center: [6.0, 0.0, 0.0], radius: 1.0 }
+cells:
+  - { material_name: Water, csg: { op: union, prs: [s1, s2, s3, s4, s5, s6, s7] } }
+"#;
+
+        let input: WorldInput = serde_saphyr::from_str_valid(yaml).unwrap();
+        let mut material_map = HashMap::new();
+        material_map.insert("Water".to_string(), 0);
+        let world = input.build(&material_map).unwrap();
+        assert_eq!(world.cells[0].csg.instructions.len(), 8);
+        assert_eq!(
+            world.cells[0].csg.instructions.last(),
+            Some(&Instruction::Union)
+        );
     }
 }

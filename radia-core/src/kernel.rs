@@ -321,7 +321,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::csg::{CSGNode, Cell};
+    use crate::csg::{Cell, FlatCSG, Instruction};
     use crate::primitive::Primitive;
 
     #[test]
@@ -419,11 +419,15 @@ mod tests {
             ],
             cells: vec![
                 Cell {
-                    csg: CSGNode::Primitive(0),
+                    csg: FlatCSG {
+                        instructions: vec![Instruction::PushPrimitive(0)],
+                    },
                     material_id: 0,
                 },
                 Cell {
-                    csg: CSGNode::Primitive(1),
+                    csg: FlatCSG {
+                        instructions: vec![Instruction::PushPrimitive(1)],
+                    },
                     material_id: 1,
                 },
             ],

@@ -3,71 +3,60 @@ use crate::material::MaterialIndex;
 use crate::primitive::{Primitive, Ray};
 use glam::Vec3A;
 
-#[derive(PartialEq, Debug)]
-pub enum CSGNode {
-    Union(Box<CSGNode>, Box<CSGNode>),
-    Intersection(Box<CSGNode>, Box<CSGNode>),
-    Difference(Box<CSGNode>, Box<CSGNode>),
-    Primitive(usize), // primitive_id
+/// Flatten `CSGNode` into a list of instructions (Reverse Polish Notation)
+pub enum Instruction {
+    Union,
+    Intersection,
+    Difference,
+    PushPrimitive(usize),
 }
 
-impl CSGNode {
-    fn contains(&self, p: &Vec3A, primitives: &[Primitive]) -> bool {
-        match self {
-            CSGNode::Union(left, right) => {
-                left.contains(p, primitives) || right.contains(p, primitives)
-            }
-            CSGNode::Intersection(left, right) => {
-                left.contains(p, primitives) && right.contains(p, primitives)
-            }
-            CSGNode::Difference(left, right) => {
-                left.contains(p, primitives) && !right.contains(p, primitives)
-            }
-            CSGNode::Primitive(id) => primitives[*id].contains(p),
-        }
-    }
-    fn check_primitive_indices(&self, primitive_len: usize) -> Result<(), String> {
-        match self {
-            CSGNode::Union(left, right) => {
-                left.check_primitive_indices(primitive_len)?;
-                right.check_primitive_indices(primitive_len)?;
-                Ok(())
-            }
-            CSGNode::Intersection(left, right) => {
-                left.check_primitive_indices(primitive_len)?;
-                right.check_primitive_indices(primitive_len)?;
-                Ok(())
-            }
-            CSGNode::Difference(left, right) => {
-                left.check_primitive_indices(primitive_len)
-                    .and_then(|_| right.check_primitive_indices(primitive_len))?;
-                Ok(())
-            }
-            CSGNode::Primitive(id) => {
-                if *id >= primitive_len {
-                    Err(format!("Primitive index out of bounds: {}", *id))
-                } else {
-                    Ok(())
+pub struct FlatCSG {
+    pub instructions: Vec<Instruction>,
+}
+
+impl FlatCSG {
+    pub fn contains(&self, p: &Vec3A, primitives: &[Primitive]) -> bool {
+        let mut stack = [false; 16];
+        let mut top = 0;
+
+        for op in &self.instructions {
+            match op {
+                Instruction::PushPrimitive(id) => {
+                    stack[top] = primitives[*id].contains(p);
+                    top += 1;
+                }
+                Instruction::Union => {
+                    stack[top - 2] = stack[top - 2] || stack[top - 1];
+                    top -= 1;
+                }
+                Instruction::Intersection => {
+                    stack[top - 2] = stack[top - 2] && stack[top - 1];
+                    top -= 1;
+                }
+                Instruction::Difference => {
+                    stack[top - 2] = stack[top - 2] && !stack[top - 1];
+                    top -= 1;
                 }
             }
         }
+        stack[0]
     }
-    pub fn sdf(&self, p: &Vec3A, primitives: &[Primitive]) -> f32 {
-        match self {
-            CSGNode::Union(left, right) => left.sdf(p, primitives).min(right.sdf(p, primitives)),
-            CSGNode::Intersection(left, right) => {
-                left.sdf(p, primitives).max(right.sdf(p, primitives))
+
+    fn check_primitive_indices(&self, primitive_len: usize) -> Result<(), String> {
+        for op in &self.instructions {
+            if let Instruction::PushPrimitive(id) = op {
+                if *id >= primitive_len {
+                    return Err(format!("Primitive index out of bounds: {}", *id));
+                }
             }
-            CSGNode::Difference(left, right) => {
-                left.sdf(p, primitives).max(-right.sdf(p, primitives))
-            }
-            CSGNode::Primitive(id) => primitives[*id].sdf(p),
         }
+        Ok(())
     }
 }
 
 pub struct Cell {
-    pub csg: CSGNode,
+    pub csg: FlatCSG,
     pub material_id: MaterialIndex,
 }
 
@@ -159,7 +148,9 @@ mod tests {
         let world = World {
             primitives: vec![],
             cells: vec![Cell {
-                csg: CSGNode::Primitive(0),
+                csg: FlatCSG {
+                    instructions: vec![Instruction::PushPrimitive(0)],
+                },
                 material_id: 0,
             }],
         };
@@ -170,7 +161,9 @@ mod tests {
                 radius2: 1.0,
             }],
             cells: vec![Cell {
-                csg: CSGNode::Primitive(0),
+                csg: FlatCSG {
+                    instructions: vec![Instruction::PushPrimitive(0)],
+                },
                 material_id: 0,
             }],
         };
@@ -181,10 +174,13 @@ mod tests {
                 radius2: 1.0,
             }],
             cells: vec![Cell {
-                csg: CSGNode::Union(
-                    Box::new(CSGNode::Primitive(0)),
-                    Box::new(CSGNode::Primitive(1)),
-                ),
+                csg: FlatCSG {
+                    instructions: vec![
+                        Instruction::PushPrimitive(0),
+                        Instruction::PushPrimitive(1),
+                        Instruction::Union,
+                    ],
+                },
                 material_id: 0,
             }],
         };
@@ -218,7 +214,9 @@ mod tests {
                 radius2: 1.0,
             }],
             cells: vec![Cell {
-                csg: CSGNode::Primitive(0),
+                csg: FlatCSG {
+                    instructions: vec![Instruction::PushPrimitive(0)],
+                },
                 material_id: 0,
             }],
         };

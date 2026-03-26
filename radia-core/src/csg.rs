@@ -9,6 +9,7 @@ pub enum Instruction {
     Union,
     Intersection,
     Difference,
+    Complement,
     PushPrimitive(usize),
 }
 
@@ -38,6 +39,9 @@ impl FlatCSG {
                 Instruction::Difference => {
                     stack[top - 2] = stack[top - 2] && !stack[top - 1];
                     top -= 1;
+                }
+                Instruction::Complement => {
+                    stack[top - 1] = !stack[top - 1];
                 }
             }
         }

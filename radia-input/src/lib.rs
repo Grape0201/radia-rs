@@ -1,6 +1,7 @@
 mod atomic_number;
 pub mod buildup;
 mod common;
+mod csg_parser;
 pub mod material;
 pub mod source;
 pub mod world;
@@ -39,6 +40,8 @@ pub enum InputError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Validation(#[from] serde_saphyr::Error),
+    #[error(transparent)]
+    CsgParseError(#[from] csg_parser::CSGParseError),
 }
 
 #[derive(Deserialize, Debug, Validate)]

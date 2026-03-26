@@ -1,6 +1,7 @@
+use crate::csg_parser::parse_csg;
 use garde::Validate;
 use glam::Vec3A;
-use radia_core::csg::{Cell, FlatCSG, Instruction, World};
+use radia_core::csg::{Cell, Instruction, World};
 use radia_core::material::MaterialIndex;
 use radia_core::primitive::Primitive;
 use serde::{Deserialize, Serialize};
@@ -50,147 +51,91 @@ pub enum PrimitiveInput {
 pub struct CellInput {
     #[garde(skip)]
     pub material_name: String,
-    #[garde(dive)]
-    pub csg: CSGInput,
-}
-
-#[derive(Serialize, Deserialize, Debug, Validate)]
-#[serde(untagged)]
-pub enum CSGInput {
     #[garde(skip)]
-    Operation {
-        #[garde(skip)]
-        op: String,
-        #[garde(dive)]
-        prs: Vec<CSGInput>,
-    },
-    #[garde(skip)]
-    Name(#[garde(skip)] String),
+    pub csg: String,
 }
 
 impl WorldInput {
     pub fn build(self, material_map: &HashMap<String, MaterialIndex>) -> Result<World, InputError> {
-        let mut used_primitive_names = std::collections::HashSet::new();
-        for c_conf in &self.cells {
-            collect_used_primitives(&c_conf.csg, &mut used_primitive_names);
-        }
+        let prim_map: HashMap<String, usize> = self
+            .primitives
+            .keys()
+            .enumerate()
+            .map(|(i, name)| (name.clone(), i))
+            .collect();
 
-        let mut primitive_map = HashMap::new();
-        let mut primitives = Vec::new();
+        let mut prim_vec: Vec<(&str, &PrimitiveInput)> = self
+            .primitives
+            .iter()
+            .map(|(k, v)| (k.as_str(), v))
+            .collect();
+        prim_vec.sort_by_key(|(name, _)| prim_map[*name]);
 
-        for (name, p_conf) in self.primitives {
-            if !used_primitive_names.contains(&name) {
-                tracing::warn!("Primitive '{}' is defined but never used.", name);
-                continue;
+        let primitives: Vec<Primitive> = prim_vec
+            .into_iter()
+            .map(|(_, p)| convert_primitive(p))
+            .collect();
+
+        let cells: Vec<Cell> = self
+            .cells
+            .into_iter()
+            .map(|cell_input| {
+                let csg = parse_csg(&cell_input.csg, &prim_map)?;
+                let material_id =
+                    *material_map.get(&cell_input.material_name).ok_or_else(|| {
+                        InputError::MaterialNotFound(cell_input.material_name.clone())
+                    })?;
+                Ok(Cell { csg, material_id })
+            })
+            .collect::<Result<_, InputError>>()?;
+
+        let used_ids: std::collections::HashSet<usize> = cells
+            .iter()
+            .flat_map(|cell| &cell.csg.instructions)
+            .filter_map(|inst| match inst {
+                Instruction::PushPrimitive(id) => Some(*id),
+                _ => None,
+            })
+            .collect();
+
+        for (name, &idx) in &prim_map {
+            if !used_ids.contains(&idx) {
+                tracing::warn!(primitive = %name, "Primitive is defined but never used in any cell");
             }
-
-            let id = primitives.len();
-            primitive_map.insert(name.to_string(), id);
-
-            let p = match p_conf {
-                PrimitiveInput::Sphere { center, radius, .. } => Primitive::Sphere {
-                    center: Vec3A::from_array(center),
-                    radius2: radius * radius,
-                },
-                PrimitiveInput::RectangularParallelPiped { bounds, .. } => {
-                    Primitive::RectangularParallelPiped {
-                        min: Vec3A::from_array(bounds.min),
-                        max: Vec3A::from_array(bounds.max),
-                    }
-                }
-                PrimitiveInput::FiniteCylinder {
-                    center,
-                    vector,
-                    radius,
-                    ..
-                } => {
-                    let v = Vec3A::from_array(vector);
-                    let length = v.length();
-                    Primitive::FiniteCylinder {
-                        center: Vec3A::from_array(center),
-                        direction: v / length,
-                        radius2: radius * radius,
-                        half_height: length / 2.0,
-                    }
-                }
-            };
-            primitives.push(p);
-        }
-
-        let mut cells = Vec::new();
-        for c_conf in self.cells {
-            let material_id = *material_map
-                .get(&c_conf.material_name)
-                .ok_or_else(|| InputError::MaterialNotFound(c_conf.material_name.clone()))?;
-
-            let mut instructions = Vec::new();
-            build_csg_node(&c_conf.csg, &primitive_map, &mut instructions)?;
-            cells.push(Cell {
-                csg: FlatCSG { instructions },
-                material_id,
-            });
         }
 
         Ok(World { primitives, cells })
     }
 }
 
-fn collect_used_primitives(config: &CSGInput, used: &mut std::collections::HashSet<String>) {
-    match config {
-        CSGInput::Name(name) => {
-            used.insert(name.clone());
+fn convert_primitive(p: &PrimitiveInput) -> Primitive {
+    match p {
+        PrimitiveInput::Sphere { center, radius, .. } => Primitive::Sphere {
+            center: Vec3A::from_array(*center),
+            radius2: radius * radius,
+        },
+        PrimitiveInput::RectangularParallelPiped { bounds, .. } => {
+            Primitive::RectangularParallelPiped {
+                min: Vec3A::from_array(bounds.min),
+                max: Vec3A::from_array(bounds.max),
+            }
         }
-        CSGInput::Operation { prs, .. } => {
-            for p in prs {
-                collect_used_primitives(p, used);
+        PrimitiveInput::FiniteCylinder {
+            center,
+            vector,
+            radius,
+            ..
+        } => {
+            let v = Vec3A::from_array(*vector);
+            let length = v.length();
+            Primitive::FiniteCylinder {
+                center: Vec3A::from_array(*center),
+                direction: v / length,
+                radius2: radius * radius,
+                half_height: length / 2.0,
             }
         }
     }
-}
-
-fn build_csg_node(
-    config: &CSGInput,
-    primitive_map: &HashMap<String, usize>,
-    instructions: &mut Vec<Instruction>,
-) -> Result<(), InputError> {
-    match config {
-        CSGInput::Name(name) => {
-            let id = *primitive_map
-                .get(name)
-                .ok_or_else(|| InputError::PrimitiveNotFound(name.clone()))?;
-            instructions.push(Instruction::PushPrimitive(id));
-        }
-        CSGInput::Operation { op, prs } => {
-            if prs.is_empty() {
-                return Err(InputError::EmptyCsgOperation);
-            }
-            match op.as_str() {
-                "union" | "outer" => {
-                    // TODO: check length of prs
-                    for p in prs {
-                        build_csg_node(p, primitive_map, instructions)?;
-                    }
-                    instructions.push(Instruction::Union);
-                }
-                "intersection" | "inner" => {
-                    // TODO: check length of prs
-                    for p in prs {
-                        build_csg_node(p, primitive_map, instructions)?;
-                    }
-                    instructions.push(Instruction::Intersection);
-                }
-                "difference" => {
-                    // TODO: check length of prs
-                    for p in prs {
-                        build_csg_node(p, primitive_map, instructions)?;
-                    }
-                    instructions.push(Instruction::Difference);
-                }
-                _ => return Err(InputError::UnknownCsgOperation(op.clone())),
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -301,17 +246,36 @@ primitives:
   s6: { type: Sphere, center: [5.0, 0.0, 0.0], radius: 1.0 }
   s7: { type: Sphere, center: [6.0, 0.0, 0.0], radius: 1.0 }
 cells:
-  - { material_name: Water, csg: { op: union, prs: [s1, s2, s3, s4, s5, s6, s7] } }
+  - material_name: Water
+    csg: s1 + s2 + s3 + s4 + s5 + s6 + s7
+  - material_name: Air
+    csg: s1 * s2 * s3 * s4 * s5 * s6 * s7
+  - material_name: Air
+    csg: (s1 + s2) * s3
 "#;
 
         let input: WorldInput = serde_saphyr::from_str_valid(yaml).unwrap();
         let mut material_map = HashMap::new();
         material_map.insert("Water".to_string(), 0);
+        material_map.insert("Air".to_string(), 1);
         let world = input.build(&material_map).unwrap();
-        assert_eq!(world.cells[0].csg.instructions.len(), 8);
+        assert_eq!(world.cells[0].csg.instructions.len(), 13);
+        println!("{:?}", world.cells[0].csg.instructions);
         assert_eq!(
             world.cells[0].csg.instructions.last(),
             Some(&Instruction::Union)
+        );
+        assert_eq!(world.cells[1].csg.instructions.len(), 13);
+        println!("{:?}", world.cells[1].csg.instructions);
+        assert_eq!(
+            world.cells[1].csg.instructions.last(),
+            Some(&Instruction::Intersection)
+        );
+        assert_eq!(world.cells[2].csg.instructions.len(), 5);
+        println!("{:?}", world.cells[2].csg.instructions);
+        assert_eq!(
+            world.cells[2].csg.instructions.last(),
+            Some(&Instruction::Intersection)
         );
     }
 }

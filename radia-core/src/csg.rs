@@ -48,11 +48,16 @@ impl FlatCSG {
         stack[0]
     }
 
-    fn check_primitive_indices(&self, primitive_len: usize) -> Result<(), String> {
+    fn check_primitive_indices(
+        &self,
+        primitive_len: usize,
+    ) -> Result<(), CSGInstructionValidationError> {
         for op in &self.instructions {
             if let Instruction::PushPrimitive(id) = op {
                 if *id >= primitive_len {
-                    return Err(format!("Primitive index out of bounds: {}", *id));
+                    return Err(CSGInstructionValidationError::PrimitiveIndexOutOfBounds {
+                        index: *id,
+                    });
                 }
             }
         }
@@ -130,17 +135,76 @@ impl World {
         }
     }
 
-    pub fn check_primitive_indices(&self) -> Result<(), String> {
+    /// - Primitive indices are valid ?
+    /// - CSG instructions are valid ?
+    pub fn validate(&self) -> Result<(), CSGInstructionValidationError> {
         let primitive_len = self.primitives.len();
         for cell in &self.cells {
             cell.csg.check_primitive_indices(primitive_len)?;
+            validate_csg_instructions(&cell.csg.instructions)?;
         }
         Ok(())
     }
 }
 
+#[derive(thiserror::Error, Debug, PartialEq)]
+pub enum CSGInstructionValidationError {
+    #[error("Primitive index out of bounds: {index}")]
+    PrimitiveIndexOutOfBounds { index: usize },
+    #[error("Empty instructions")]
+    EmptyInstructions,
+    #[error("Stack underflow at index {index}: {instruction}")]
+    StackUnderflow { index: usize, instruction: String },
+    #[error("Stack not exhausted: {remaining} items left")]
+    StackNotExhausted { remaining: usize },
+}
+
+pub fn validate_csg_instructions(
+    instructions: &[Instruction],
+) -> Result<(), CSGInstructionValidationError> {
+    if instructions.is_empty() {
+        return Err(CSGInstructionValidationError::EmptyInstructions);
+    }
+
+    let mut depth: isize = 0;
+
+    for (i, inst) in instructions.iter().enumerate() {
+        match inst {
+            Instruction::PushPrimitive(_) => depth += 1,
+            // 2 pop -> 1 push = net -1
+            Instruction::Union | Instruction::Intersection | Instruction::Difference => {
+                if depth < 2 {
+                    return Err(CSGInstructionValidationError::StackUnderflow {
+                        index: i,
+                        instruction: format!("{:?}", inst),
+                    });
+                }
+                depth -= 1;
+            }
+            // net 0
+            Instruction::Complement => {
+                if depth < 1 {
+                    return Err(CSGInstructionValidationError::StackUnderflow {
+                        index: i,
+                        instruction: format!("{:?}", inst),
+                    });
+                }
+            }
+        }
+    }
+
+    if depth != 1 {
+        return Err(CSGInstructionValidationError::StackNotExhausted {
+            remaining: depth as usize,
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use super::Instruction::*;
     use super::*;
 
     #[test]
@@ -149,17 +213,17 @@ mod tests {
             primitives: vec![],
             cells: vec![],
         };
-        assert!(world.check_primitive_indices().is_ok());
+        assert!(world.validate().is_ok());
         let world = World {
             primitives: vec![],
             cells: vec![Cell {
                 csg: FlatCSG {
-                    instructions: vec![Instruction::PushPrimitive(0)],
+                    instructions: vec![PushPrimitive(0)],
                 },
                 material_id: 0,
             }],
         };
-        assert!(world.check_primitive_indices().is_err());
+        assert!(world.validate().is_err());
         let world = World {
             primitives: vec![Primitive::Sphere {
                 center: Vec3A::ZERO,
@@ -167,12 +231,12 @@ mod tests {
             }],
             cells: vec![Cell {
                 csg: FlatCSG {
-                    instructions: vec![Instruction::PushPrimitive(0)],
+                    instructions: vec![PushPrimitive(0)],
                 },
                 material_id: 0,
             }],
         };
-        assert!(world.check_primitive_indices().is_ok());
+        assert!(world.validate().is_ok());
         let world = World {
             primitives: vec![Primitive::Sphere {
                 center: Vec3A::ZERO,
@@ -180,16 +244,12 @@ mod tests {
             }],
             cells: vec![Cell {
                 csg: FlatCSG {
-                    instructions: vec![
-                        Instruction::PushPrimitive(0),
-                        Instruction::PushPrimitive(1),
-                        Instruction::Union,
-                    ],
+                    instructions: vec![PushPrimitive(0), PushPrimitive(1), Union],
                 },
                 material_id: 0,
             }],
         };
-        assert!(world.check_primitive_indices().is_err());
+        assert!(world.validate().is_err());
     }
 
     #[test]
@@ -220,7 +280,7 @@ mod tests {
             }],
             cells: vec![Cell {
                 csg: FlatCSG {
-                    instructions: vec![Instruction::PushPrimitive(0)],
+                    instructions: vec![PushPrimitive(0)],
                 },
                 material_id: 0,
             }],
@@ -240,5 +300,55 @@ mod tests {
         // out of sphere, material_id == None
         assert_eq!(segments[1].0, None);
         assert!((segments[1].1 - 2.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_validate_single_primitive() {
+        let instructions = vec![PushPrimitive(0)];
+        assert_eq!(validate_csg_instructions(&instructions), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_two_primitives_no_op() {
+        let instructions = vec![PushPrimitive(0), PushPrimitive(1)];
+        assert!(matches!(
+            validate_csg_instructions(&instructions),
+            Err(CSGInstructionValidationError::StackNotExhausted { remaining: 2 })
+        ));
+    }
+
+    #[test]
+    fn test_validate_union() {
+        let instructions = vec![PushPrimitive(0), PushPrimitive(1), Union];
+        assert_eq!(validate_csg_instructions(&instructions), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_complement() {
+        let instructions = vec![PushPrimitive(0), Complement];
+        assert_eq!(validate_csg_instructions(&instructions), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_underflow() {
+        let instructions = vec![PushPrimitive(0), Union];
+        assert!(matches!(
+            validate_csg_instructions(&instructions),
+            Err(CSGInstructionValidationError::StackUnderflow { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_complex() {
+        // (A union B) difference (complement C)
+        let instructions = vec![
+            PushPrimitive(0),
+            PushPrimitive(1),
+            Union,
+            PushPrimitive(2),
+            Complement,
+            Difference,
+        ];
+        assert_eq!(validate_csg_instructions(&instructions), Ok(()));
     }
 }

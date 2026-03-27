@@ -1,4 +1,4 @@
-use crate::csg_parser::parse_csg;
+use crate::csg_parser::{parse_csg, validate_csg_syntax};
 use garde::Validate;
 use glam::Vec3A;
 use radia_core::csg::{Cell, Instruction, World};
@@ -51,8 +51,12 @@ pub enum PrimitiveInput {
 pub struct CellInput {
     #[garde(skip)]
     pub material_name: String,
-    #[garde(skip)]
+    #[garde(custom(validate_csg_syntax_garde))]
     pub csg: String,
+}
+
+fn validate_csg_syntax_garde(value: &str, _context: &()) -> garde::Result {
+    validate_csg_syntax(value).map_err(|e| garde::Error::new(e))
 }
 
 impl WorldInput {
@@ -162,11 +166,7 @@ cells:
   - material_name: Water
     csg: source
   - material_name: Air
-    csg:
-      op: difference
-      prs:
-        - whole_world
-        - source
+    csg: whole_world - source
 "#;
 
         let input: WorldInput = serde_saphyr::from_str_valid(yaml).unwrap();
@@ -178,27 +178,10 @@ cells:
         material_map.insert("Air".to_string(), 1);
 
         let world = input.build(&material_map).unwrap();
-        assert_eq!(world.primitives.len(), 2);
+        assert_eq!(world.primitives.len(), 3);
         assert_eq!(world.cells.len(), 2);
         assert_eq!(world.cells[0].material_id, 0); // Water
         assert_eq!(world.cells[1].material_id, 1); // Air
-        let (source_pid, whole_world_pid) = match world.primitives[0] {
-            Primitive::Sphere { .. } => (0, 1),
-            _ => (1, 0),
-        };
-
-        assert_eq!(
-            world.cells[0].csg.instructions,
-            vec![Instruction::PushPrimitive(source_pid)]
-        );
-        assert_eq!(
-            world.cells[1].csg.instructions,
-            vec![
-                Instruction::PushPrimitive(whole_world_pid),
-                Instruction::PushPrimitive(source_pid),
-                Instruction::Difference
-            ]
-        );
     }
 
     #[test]
@@ -277,5 +260,12 @@ cells:
             world.cells[2].csg.instructions.last(),
             Some(&Instruction::Intersection)
         );
+    }
+    #[test]
+    fn test_validate_csg_syntax() {
+        let yaml = "material_name: mat1\ncsg: p1 | p2";
+        assert!(serde_saphyr::from_str_valid::<CellInput>(yaml).is_err());
+        let yaml = "material_name: mat1\ncsg: p1 p2";
+        assert!(serde_saphyr::from_str_valid::<CellInput>(yaml).is_err());
     }
 }

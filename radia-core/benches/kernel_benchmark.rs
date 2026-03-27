@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
-use radia_core::csg::{CSGNode, Cell, World};
+use radia_core::csg::{Cell, FlatCSG, Instruction, World};
 use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_parallel};
 use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::physics::GPBuildupProvider;
@@ -102,22 +102,25 @@ fn generate_test_environment() -> (
 
     // Cell 0: Iron core (material index 1)
     world.cells.push(Cell {
-        csg: CSGNode::Primitive(0),
+        csg: FlatCSG {
+            instructions: vec![Instruction::PushPrimitive(0)],
+        },
         material_id: 1,
     });
     // Cell 1: Water shell (material index 0)
     world.cells.push(Cell {
         material_id: 0,
-        csg: CSGNode::Intersection(
-            Box::new(CSGNode::Primitive(1)), // inside outer sphere
-            Box::new(CSGNode::Difference(
-                // outside inner sphere
-                Box::new(CSGNode::Primitive(1)),
-                Box::new(CSGNode::Primitive(0)),
-            )),
-        ),
+        csg: FlatCSG {
+            instructions: vec![
+                Instruction::PushPrimitive(1),
+                Instruction::PushPrimitive(0),
+                Instruction::Difference,
+                Instruction::PushPrimitive(1),
+                Instruction::Intersection,
+            ],
+        },
     });
-    world.check_primitive_indices().unwrap();
+    world.validate().unwrap();
 
     // 4. Setup Sources (e.g. 1000 points arranged in a grid inside the core)
     let sources = generate_sphere_source(Vec3A::ZERO, 9.0, 10, 10, 10, 1.0);

@@ -1,8 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
-use radia_core::csg::{CSGNode, Cell, World};
-use radia_core::kernel::{calculate_dose_rate, calculate_dose_rate_no_collector, FastCollector};
+use radia_core::csg::{Cell, FlatCSG, Instruction, World};
+use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_no_collector};
 use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::physics::GPBuildupProvider;
 use radia_core::primitive::Primitive;
@@ -13,7 +13,13 @@ fn config_with_profiler() -> Criterion {
     Criterion::default().with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)))
 }
 
-fn generate_test_environment() -> (World, radia_core::physics::MaterialPhysicsTable, Vec<PointSource>, Vec<f32>, Vec<f32>) {
+fn generate_test_environment() -> (
+    World,
+    radia_core::physics::MaterialPhysicsTable,
+    Vec<PointSource>,
+    Vec<f32>,
+    Vec<f32>,
+) {
     let mut water_composition = HashMap::new();
     water_composition.insert(1, 0.111);
     water_composition.insert(8, 0.889);
@@ -36,37 +42,88 @@ fn generate_test_environment() -> (World, radia_core::physics::MaterialPhysicsTa
 
     let mut gp_provider = GPBuildupProvider::new();
     let dummy_params = vec![
-        radia_core::physics::GPParams { energy_mev: 0.5, a: 0.1, b: 2.0, c: 0.5, d: 0.05, xk: 14.0 },
-        radia_core::physics::GPParams { energy_mev: 1.0, a: 0.12, b: 2.1, c: 0.53, d: 0.04, xk: 14.4 },
-        radia_core::physics::GPParams { energy_mev: 10.0, a: 0.2, b: 1.3, c: 0.9, d: 0.01, xk: 13.5 },
+        radia_core::physics::GPParams {
+            energy_mev: 0.5,
+            a: 0.1,
+            b: 2.0,
+            c: 0.5,
+            d: 0.05,
+            xk: 14.0,
+        },
+        radia_core::physics::GPParams {
+            energy_mev: 1.0,
+            a: 0.12,
+            b: 2.1,
+            c: 0.53,
+            d: 0.04,
+            xk: 14.4,
+        },
+        radia_core::physics::GPParams {
+            energy_mev: 10.0,
+            a: 0.2,
+            b: 1.3,
+            c: 0.9,
+            d: 0.01,
+            xk: 13.5,
+        },
     ];
     gp_provider.insert_data("DummyMaterial".to_string(), dummy_params);
 
     let physics_table = radia_core::physics::MaterialPhysicsTable::generate(
-        &material_names, &buildup_alias_map, &registry, &energy_groups, &DummyProvider, &gp_provider,
-    ).expect("Failed to generate physics table");
+        &material_names,
+        &buildup_alias_map,
+        &registry,
+        &energy_groups,
+        &DummyProvider,
+        &gp_provider,
+    )
+    .expect("Failed to generate physics table");
 
-    let mut world = World { primitives: vec![], cells: vec![] };
-    world.primitives.push(Primitive::Sphere { center: Vec3A::ZERO, radius2: 100.0 });
-    world.primitives.push(Primitive::Sphere { center: Vec3A::ZERO, radius2: 2500.0 });
-    world.cells.push(Cell { csg: CSGNode::Primitive(0), material_id: 1 });
+    let mut world = World {
+        primitives: vec![],
+        cells: vec![],
+    };
+    world.primitives.push(Primitive::Sphere {
+        center: Vec3A::ZERO,
+        radius2: 100.0,
+    });
+    world.primitives.push(Primitive::Sphere {
+        center: Vec3A::ZERO,
+        radius2: 2500.0,
+    });
+    world.cells.push(Cell {
+        csg: FlatCSG {
+            instructions: vec![Instruction::PushPrimitive(0)],
+        },
+        material_id: 1,
+    });
     world.cells.push(Cell {
         material_id: 0,
-        csg: CSGNode::Intersection(
-            Box::new(CSGNode::Primitive(1)),
-            Box::new(CSGNode::Difference(Box::new(CSGNode::Primitive(1)), Box::new(CSGNode::Primitive(0)))),
-        ),
+        csg: FlatCSG {
+            instructions: vec![
+                Instruction::PushPrimitive(0),
+                Instruction::PushPrimitive(1),
+                Instruction::Difference,
+            ],
+        },
     });
 
     let sources = generate_sphere_source(Vec3A::ZERO, 9.0, 10, 10, 10, 1.0);
     let conversion_factors = vec![1.0; energy_groups.len()];
     let intensity_by_group = vec![1.0 / energy_groups.len() as f32; energy_groups.len()];
 
-    (world, physics_table, sources, conversion_factors, intensity_by_group)
+    (
+        world,
+        physics_table,
+        sources,
+        conversion_factors,
+        intensity_by_group,
+    )
 }
 
 fn benchmark_collector_comparison(c: &mut Criterion) {
-    let (world, physics_table, sources, conversion_factors, intensity_by_group) = generate_test_environment();
+    let (world, physics_table, sources, conversion_factors, intensity_by_group) =
+        generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
     let (get_mu, get_buildup) = physics_table.into_closures();
 

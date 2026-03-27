@@ -12,11 +12,7 @@ world:
     - material_name: "Water"
       csg: "source_sphere"
     - material_name: "Iron"
-      csg:
-        op: "difference"
-        prs:
-          - "shield_box"
-          - "source_sphere"
+      csg: "shield_box - source_sphere"
 
 user_defined_materials:
   Water:

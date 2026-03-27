@@ -12,11 +12,7 @@ world:
     - material_name: "Water, Liquid"  # material name in the registry from NIST
       csg: "source_sphere"
     - material_name: "Concrete, Ordinary"  # material name in the registry from NIST
-      csg:
-        op: "difference"
-        prs:
-          - "shield_box"
-          - "source_sphere"
+      csg: "shield_box - source_sphere"
 
 dose_quantity:
   buildup_params:

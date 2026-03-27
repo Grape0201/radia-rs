@@ -14,7 +14,7 @@ use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
 pub struct WorldInput {
     #[garde(dive)]
     #[serde(default)]
-    pub primitives: HashMap<String, PrimitiveInput>,
+    pub primitives: Vec<PrimitiveInput>,
     #[garde(dive)]
     #[serde(default)]
     pub cells: Vec<CellInput>,
@@ -25,6 +25,8 @@ pub struct WorldInput {
 pub enum PrimitiveInput {
     #[serde(alias = "SPH")]
     Sphere {
+        #[garde(length(min = 1))]
+        name: String,
         #[garde(skip)]
         center: [f32; 3],
         #[garde(range(min = 0.0))]
@@ -32,12 +34,16 @@ pub enum PrimitiveInput {
     },
     #[serde(alias = "RPP", alias = "Aabb", alias = "AABB")]
     RectangularParallelPiped {
+        #[garde(length(min = 1))]
+        name: String,
         #[garde(dive)]
         #[serde(flatten)]
         bounds: MinMaxBounds,
     },
     #[serde(alias = "CYL")]
     FiniteCylinder {
+        #[garde(length(min = 1))]
+        name: String,
         #[garde(skip)]
         center: [f32; 3],
         #[garde(custom(is_vector_longer_than_epsilon))]
@@ -45,6 +51,16 @@ pub enum PrimitiveInput {
         #[garde(range(min = 0.0))]
         radius: f32,
     },
+}
+
+impl PrimitiveInput {
+    pub fn name(&self) -> &str {
+        match self {
+            PrimitiveInput::Sphere { name, .. } => name,
+            PrimitiveInput::RectangularParallelPiped { name, .. } => name,
+            PrimitiveInput::FiniteCylinder { name, .. } => name,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Validate)]
@@ -61,23 +77,22 @@ fn validate_csg_syntax_garde(value: &str, _context: &()) -> garde::Result {
 
 impl WorldInput {
     pub fn build(self, material_map: &HashMap<String, MaterialIndex>) -> Result<World, InputError> {
-        let prim_map: HashMap<String, usize> = self
-            .primitives
-            .keys()
-            .enumerate()
-            .map(|(i, name)| (name.clone(), i))
-            .collect();
+        let mut prim_map = HashMap::<String, usize>::new();
+        for (index, p) in self.primitives.iter().enumerate() {
+            let name = p.name();
+            if prim_map.contains_key(name) {
+                return Err(InputError::InvalidPrimitive {
+                    name: name.to_string(),
+                    reason: "Duplicate primitive name".to_string(),
+                });
+            }
+            prim_map.insert(name.to_string(), index);
+        }
 
-        let mut prim_vec: Vec<(&str, &PrimitiveInput)> = self
+        let primitives: Vec<Primitive> = self
             .primitives
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
-            .collect();
-        prim_vec.sort_by_key(|(name, _)| prim_map[*name]);
-
-        let primitives: Vec<Primitive> = prim_vec
             .into_iter()
-            .map(|(_, p)| convert_primitive(p))
+            .map(|p| convert_primitive(&p))
             .collect();
 
         let cells: Vec<Cell> = self
@@ -150,15 +165,15 @@ mod tests {
     fn test_deserialize_world_input() {
         let yaml = r#"
 primitives: 
-  unused: 
+  - name: unused
     type: Sphere
     center: [1.0, 1.0, 1.0]
     radius: 1.0
-  source: 
+  - name: source
     type: Sphere
     center: [0.0, 0.0, 0.0]
     radius: 2.0
-  whole_world: 
+  - name: whole_world
     type: RectangularParallelPiped
     min: [0.0, 0.0, 0.0]
     max: [1.0, 1.0, 1.0]
@@ -182,28 +197,40 @@ cells:
         assert_eq!(world.cells.len(), 2);
         assert_eq!(world.cells[0].material_id, 0); // Water
         assert_eq!(world.cells[1].material_id, 1); // Air
+        assert_eq!(
+            world.cells[0].csg.instructions,
+            vec![Instruction::PushPrimitive(1)]
+        );
+        assert_eq!(
+            world.cells[1].csg.instructions,
+            vec![
+                Instruction::PushPrimitive(2),
+                Instruction::PushPrimitive(1),
+                Instruction::Difference
+            ]
+        );
     }
 
     #[test]
     fn test_deserialize_primitive_aliases() {
         let yaml = r#"primitives:
-  s:
+  - name: s
     type: SPH
     center: [0.0, 0.0, 0.0]
     radius: 1.0
-  r1:
+  - name: r1
     type: RPP
     min: [0.0, 0.0, 0.0]
     max: [1.0, 1.0, 1.0]
-  r2:
+  - name: r2
     type: Aabb
     min: [0.0, 0.0, 0.0]
     max: [1.0, 1.0, 1.0]
-  r3:
+  - name: r3
     type: AABB
     min: [0.0, 0.0, 0.0]
     max: [1.0, 1.0, 1.0]
-  c:
+  - name: c
     type: CYL
     center: [0.0, 0.0, 0.0]
     vector: [0.0, 0.0, 1.0]
@@ -213,21 +240,38 @@ cells:
   csg: s
         "#;
 
-        let input: Result<WorldInput, _> = serde_saphyr::from_str_valid(yaml);
-        assert!(input.is_ok());
+        let input: WorldInput = serde_saphyr::from_str_valid(yaml).unwrap();
+        assert!(matches!(input.primitives[0], PrimitiveInput::Sphere { .. }));
+        assert!(matches!(
+            input.primitives[1],
+            PrimitiveInput::RectangularParallelPiped { .. }
+        ));
+        assert!(matches!(
+            input.primitives[2],
+            PrimitiveInput::RectangularParallelPiped { .. }
+        ));
+        assert!(matches!(
+            input.primitives[3],
+            PrimitiveInput::RectangularParallelPiped { .. }
+        ));
+        assert!(matches!(
+            input.primitives[4],
+            PrimitiveInput::FiniteCylinder { .. }
+        ));
+        assert!(input.validate().is_ok());
     }
 
     #[test]
     fn test_complicated_csg() {
         let yaml = r#"
 primitives: 
-  s1: { type: Sphere, center: [0.0, 0.0, 0.0], radius: 1.0 }
-  s2: { type: Sphere, center: [1.0, 0.0, 0.0], radius: 1.0 }
-  s3: { type: Sphere, center: [2.0, 0.0, 0.0], radius: 1.0 }
-  s4: { type: Sphere, center: [3.0, 0.0, 0.0], radius: 1.0 }
-  s5: { type: Sphere, center: [4.0, 0.0, 0.0], radius: 1.0 }
-  s6: { type: Sphere, center: [5.0, 0.0, 0.0], radius: 1.0 }
-  s7: { type: Sphere, center: [6.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s1, type: Sphere, center: [0.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s2, type: Sphere, center: [1.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s3, type: Sphere, center: [2.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s4, type: Sphere, center: [3.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s5, type: Sphere, center: [4.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s6, type: Sphere, center: [5.0, 0.0, 0.0], radius: 1.0 }
+  - {name: s7, type: Sphere, center: [6.0, 0.0, 0.0], radius: 1.0 }
 cells:
   - material_name: Water
     csg: s1 + s2 + s3 + s4 + s5 + s6 + s7

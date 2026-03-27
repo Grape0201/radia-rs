@@ -59,6 +59,14 @@ pub struct DoseQuantityInput {
 }
 
 #[derive(Deserialize, Debug, Validate)]
+pub struct DetectorInput {
+    #[garde(length(min = 1))]
+    pub name: String,
+    #[garde(skip)]
+    pub position: [f32; 3],
+}
+
+#[derive(Deserialize, Debug, Validate)]
 pub struct SimulationInput {
     #[garde(dive)]
     #[serde(default)]
@@ -68,8 +76,8 @@ pub struct SimulationInput {
     pub user_defined_materials: HashMap<String, material::UserDefinedMaterialInput>,
     #[garde(dive)]
     pub dose_quantity: DoseQuantityInput,
-    #[garde(length(min = 1))]
-    pub detectors: HashMap<String, [f32; 3]>,
+    #[garde(length(min = 1), dive)]
+    pub detectors: Vec<DetectorInput>,
     #[garde(dive)]
     pub source: source::SourceInput,
 }

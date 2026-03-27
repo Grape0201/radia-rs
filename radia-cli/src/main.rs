@@ -107,7 +107,7 @@ fn main() -> Result<()> {
 
     let (get_mu, get_buildup) = physics_table.into_closures();
 
-    for (name, pos) in &detectors {
+    for det in &detectors {
         let chunk_size = 1000;
         let dose_rate = calculate_dose_rate_parallel(
             &get_mu,
@@ -115,18 +115,18 @@ fn main() -> Result<()> {
             &world,
             &conversion_factors,
             &intensity_by_group,
-            glam::Vec3A::from(*pos),
+            glam::Vec3A::from(det.position),
             &srcs,
             chunk_size,
         );
-        *detector_doses.entry(name.clone()).or_insert(0.0) += dose_rate;
+        *detector_doses.entry(det.name.clone()).or_insert(0.0) += dose_rate;
     }
 
-    for (name, pos) in detectors {
-        let dose_rate = detector_doses.get(&name).unwrap_or(&0.0);
+    for det in detectors {
+        let dose_rate = detector_doses.get(&det.name).unwrap_or(&0.0);
         info!(
             "Detector '{}' at {:?}: Dose Rate = {:.6e}",
-            name, pos, dose_rate
+            det.name, det.position, dose_rate
         );
     }
 

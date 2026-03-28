@@ -4,7 +4,7 @@ use crate::constants::{E_EPSILON, O_EPSILON, T_EPSILON};
 
 /// Error type for buildup factor calculations and data management
 #[derive(thiserror::Error, Debug)]
-pub enum BuildupError {
+pub enum BuildupProviderError {
     #[error("Material '{0}' not found in buildup data")]
     MaterialNotFound(String),
 
@@ -24,15 +24,6 @@ pub enum BuildupError {
 
     #[error("Buildup data for '{0}' is empty")]
     EmptyData(String),
-
-    #[error("Invalid table size: expected {expected}, got {actual}")]
-    InvalidTableSize { expected: usize, actual: usize },
-
-    #[error("Material '{0}' missing buildup source")]
-    MissingBuildupSource(String),
-
-    #[error("{0}")]
-    Other(String),
 }
 
 /// Model representing the buildup factor and its required parameters
@@ -157,7 +148,7 @@ pub struct GPParams {
 /// Trait for providing buildup factor models based on material and energy.
 pub trait BuildupProvider<M> {
     /// Returns the buildup model for a given material and energy.
-    fn get_model(&self, material_name: &str, energy: f32) -> Result<M, BuildupError>;
+    fn get_model(&self, material_name: &str, energy: f32) -> Result<M, BuildupProviderError>;
 }
 
 /// A provider that holds hardcoded G-P data and interpolates to an arbitrary energy grid.
@@ -194,20 +185,20 @@ impl GPBuildupProvider {
         &self,
         material_name: &str,
         target_energy: f32,
-    ) -> Result<BuildupModel, BuildupError> {
+    ) -> Result<BuildupModel, BuildupProviderError> {
         let params_list = self
             .data
             .get(material_name)
-            .ok_or_else(|| BuildupError::MaterialNotFound(material_name.to_string()))?;
+            .ok_or_else(|| BuildupProviderError::MaterialNotFound(material_name.to_string()))?;
 
         if params_list.is_empty() {
-            return Err(BuildupError::EmptyData(material_name.to_string()));
+            return Err(BuildupProviderError::EmptyData(material_name.to_string()));
         }
 
         // Extrapolation is not allowed to ensure accuracy
         let min_e = params_list.first().unwrap().energy_mev;
         if target_energy < min_e {
-            return Err(BuildupError::EnergyTooLow {
+            return Err(BuildupProviderError::EnergyTooLow {
                 target: target_energy,
                 min: min_e,
                 material: material_name.to_string(),
@@ -216,7 +207,7 @@ impl GPBuildupProvider {
 
         let max_e = params_list.last().unwrap().energy_mev;
         if target_energy > max_e {
-            return Err(BuildupError::EnergyTooHigh {
+            return Err(BuildupProviderError::EnergyTooHigh {
                 target: target_energy,
                 max: max_e,
                 material: material_name.to_string(),
@@ -272,12 +263,16 @@ impl GPBuildupProvider {
         }
 
         // This path should technically not be reached if range checks pass
-        Err(BuildupError::EmptyData(material_name.to_string()))
+        Err(BuildupProviderError::EmptyData(material_name.to_string()))
     }
 }
 
 impl BuildupProvider<BuildupModel> for GPBuildupProvider {
-    fn get_model(&self, material_name: &str, energy: f32) -> Result<BuildupModel, BuildupError> {
+    fn get_model(
+        &self,
+        material_name: &str,
+        energy: f32,
+    ) -> Result<BuildupModel, BuildupProviderError> {
         self.interpolate(material_name, energy)
     }
 }

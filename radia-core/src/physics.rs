@@ -1,6 +1,7 @@
-use crate::buildup::{BuildupError, BuildupModel, BuildupProvider};
+use crate::buildup::{BuildupModel, BuildupProvider, BuildupProviderError};
 use crate::mass_attenuation::{
-    GroupIndex, MassAttenuationProvider, MaterialIndex, MaterialRegistry,
+    GroupIndex, MassAttenuationProvider, MassAttenuationProviderError, MaterialIndex,
+    MaterialRegistry,
 };
 
 use std::collections::HashMap;
@@ -12,10 +13,10 @@ pub enum MaterialPhysicsError {
     MaterialDataNotInRegistry(String),
 
     #[error(transparent)]
-    Material(#[from] crate::mass_attenuation::MaterialError),
+    MassAttenuation(#[from] MassAttenuationProviderError),
 
     #[error(transparent)]
-    Buildup(#[from] BuildupError),
+    Buildup(#[from] BuildupProviderError),
 }
 
 /// A unified table for looking up both macroscopic cross sections (mu) and buildup factor models.
@@ -50,7 +51,7 @@ impl MaterialPhysicsTable {
         for name in material_names {
             let buildup_source = buildup_alias_map
                 .get(name)
-                .ok_or_else(|| BuildupError::MaterialNotFound(name.clone()))?;
+                .ok_or_else(|| BuildupProviderError::MaterialNotFound(name.clone()))?;
 
             let mat = registry
                 .get_material(name)
@@ -177,10 +178,16 @@ mod tests {
 
         // Out of range (Extrapolation) should now be an error
         let err_low = provider.interpolate("DummyMaterial", 0.1);
-        assert!(matches!(err_low, Err(BuildupError::EnergyTooLow { .. })));
+        assert!(matches!(
+            err_low,
+            Err(BuildupProviderError::EnergyTooLow { .. })
+        ));
 
         let err_high = provider.interpolate("DummyMaterial", 20.0);
-        assert!(matches!(err_high, Err(BuildupError::EnergyTooHigh { .. })));
+        assert!(matches!(
+            err_high,
+            Err(BuildupProviderError::EnergyTooHigh { .. })
+        ));
 
         let mut registry = MaterialRegistry::new();
         let mut dummy_composition = std::collections::HashMap::new();

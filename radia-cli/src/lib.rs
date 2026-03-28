@@ -5,7 +5,8 @@ use std::path::Path;
 
 use miette::IntoDiagnostic;
 use radia_core::mass_attenuation::{
-    AtomicNumber, MassAttenuationProvider, MaterialDef, MaterialError, MaterialRegistry,
+    AtomicNumber, MassAttenuationProvider, MassAttenuationProviderError, MaterialDef,
+    MaterialRegistry,
 };
 use serde::Deserialize;
 
@@ -77,16 +78,16 @@ impl JsonMassAttenuationProvider {
         energies: &[f32],
         values: &[f32],
         target_energy: f32,
-    ) -> Result<f32, MaterialError> {
+    ) -> Result<f32, MassAttenuationProviderError> {
         // do not **extrapolate**
         if target_energy <= energies[0] {
-            return Err(MaterialError::EnergyTooLow {
+            return Err(MassAttenuationProviderError::EnergyTooLow {
                 target: target_energy,
                 min: energies[0],
             });
         }
         if target_energy >= *energies.last().unwrap() {
-            return Err(MaterialError::EnergyTooHigh {
+            return Err(MassAttenuationProviderError::EnergyTooHigh {
                 target: target_energy,
                 max: *energies.last().unwrap(),
             });
@@ -117,11 +118,15 @@ impl JsonMassAttenuationProvider {
 }
 
 impl MassAttenuationProvider for JsonMassAttenuationProvider {
-    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f32) -> Result<f32, MaterialError> {
+    fn get_mass_attenuation(
+        &self,
+        z: AtomicNumber,
+        energy_mev: f32,
+    ) -> Result<f32, MassAttenuationProviderError> {
         if let Some(element) = self.elements.get(&z) {
             Self::interpolate(&element.energies, &element.mu_over_rho, energy_mev)
         } else {
-            Err(MaterialError::ElementNotFound(z))
+            Err(MassAttenuationProviderError::ElementNotFound(z))
         }
     }
 }

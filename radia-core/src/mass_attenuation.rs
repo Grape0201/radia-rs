@@ -5,7 +5,7 @@ pub type MaterialIndex = usize;
 pub type GroupIndex = usize;
 
 #[derive(thiserror::Error, Debug)]
-pub enum MaterialError {
+pub enum MassAttenuationProviderError {
     #[error("Element with atomic number {0} not found")]
     ElementNotFound(AtomicNumber),
 
@@ -23,7 +23,11 @@ pub enum MaterialError {
 /// It is responsible for returning the mass attenuation coefficient for a given atomic number and energy.
 pub trait MassAttenuationProvider {
     /// Retrieves the mass attenuation coefficient [cm^2/g] for a specific atomic number and energy (MeV).
-    fn get_mass_attenuation(&self, z: AtomicNumber, energy_mev: f32) -> Result<f32, MaterialError>;
+    fn get_mass_attenuation(
+        &self,
+        z: AtomicNumber,
+        energy_mev: f32,
+    ) -> Result<f32, MassAttenuationProviderError>;
 }
 
 /// Registry for standard material compositions.
@@ -100,13 +104,13 @@ impl MassAttenuationProvider for DummyProvider {
         &self,
         z: AtomicNumber,
         _energy_mev: f32,
-    ) -> Result<f32, MaterialError> {
+    ) -> Result<f32, MassAttenuationProviderError> {
         match z {
             1 => Ok(0.05),
             8 => Ok(0.06),
             26 => Ok(0.01),
             82 => Ok(0.01),
-            _ => Err(MaterialError::ElementNotFound(z)),
+            _ => Err(MassAttenuationProviderError::ElementNotFound(z)),
         }
     }
 }

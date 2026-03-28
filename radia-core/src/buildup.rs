@@ -1,3 +1,5 @@
+//! Buildup factor calculation and data management.
+
 use crate::constants::{E_EPSILON, O_EPSILON, T_EPSILON};
 
 /// Error type for buildup factor calculations and data management
@@ -34,7 +36,7 @@ pub enum BuildupError {
 }
 
 /// Model representing the buildup factor and its required parameters
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum BuildupModel {
     /// Ignores scattering, or useful for testing with a fixed value (usually 1.0)
     Constant(f32),
@@ -53,6 +55,13 @@ pub enum BuildupModel {
         c: f32,
         d: f32,
         xk: f32,
+    },
+
+    /// Table lookup with interpolation.
+    Table {
+        /// must be sorted
+        optical_thicknesses: Vec<f32>,
+        buildup_factors: Vec<f32>,
     },
 }
 
@@ -94,6 +103,41 @@ impl BuildupModel {
                     1.0 + (*b - 1.0) * (k_x.powf(x) - 1.0) / (k_x - 1.0)
                 }
             }
+            BuildupModel::Table {
+                optical_thicknesses,
+                buildup_factors,
+            } => {
+                if optical_thicknesses.is_empty() {
+                    return 1.0;
+                }
+
+                let x = optical_thickness;
+
+                // Clamping for out-of-bounds
+                if x <= optical_thicknesses[0] {
+                    return buildup_factors[0];
+                }
+                if x >= *optical_thicknesses.last().unwrap() {
+                    return *buildup_factors.last().unwrap();
+                }
+
+                // Binary search for the interval
+                match optical_thicknesses.binary_search_by(|val| val.partial_cmp(&x).unwrap()) {
+                    Ok(idx) => buildup_factors[idx],
+                    Err(idx) => {
+                        // idx is the insertion point, so x is between idx-1 and idx
+                        let i1 = idx - 1;
+                        let i2 = idx;
+                        let x1 = optical_thicknesses[i1];
+                        let x2 = optical_thicknesses[i2];
+                        let y1 = buildup_factors[i1];
+                        let y2 = buildup_factors[i2];
+
+                        let weight = (x - x1) / (x2 - x1);
+                        y1 + weight * (y2 - y1)
+                    }
+                }
+            }
         }
     }
 }
@@ -108,6 +152,12 @@ pub struct GPParams {
     pub c: f32,
     pub d: f32,
     pub xk: f32,
+}
+
+/// Trait for providing buildup factor models based on material and energy.
+pub trait BuildupProvider<M> {
+    /// Returns the buildup model for a given material and energy.
+    fn get_model(&self, material_name: &str, energy: f32) -> Result<M, BuildupError>;
 }
 
 /// A provider that holds hardcoded G-P data and interpolates to an arbitrary energy grid.
@@ -140,7 +190,7 @@ impl GPBuildupProvider {
 
     /// Linear interpolation with respect to log(E).
     /// This is common practice for buildup factor parameters.
-    pub(crate) fn interpolate(
+    pub fn interpolate(
         &self,
         material_name: &str,
         target_energy: f32,
@@ -226,6 +276,12 @@ impl GPBuildupProvider {
     }
 }
 
+impl BuildupProvider<BuildupModel> for GPBuildupProvider {
+    fn get_model(&self, material_name: &str, energy: f32) -> Result<BuildupModel, BuildupError> {
+        self.interpolate(material_name, energy)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +290,29 @@ mod tests {
     fn test_buildup_constant() {
         let model = BuildupModel::Constant(1.0);
         assert_eq!(model.calculate(5.0), 1.0);
+    }
+    #[test]
+    fn test_buildup_table() {
+        let model = BuildupModel::Table {
+            optical_thicknesses: vec![0.0, 1.0, 2.0, 5.0, 10.0],
+            buildup_factors: vec![1.0, 1.5, 2.5, 6.0, 15.0],
+        };
+
+        // Exact matches
+        assert!((model.calculate(0.0) - 1.0).abs() < 1e-6);
+        assert!((model.calculate(1.0) - 1.5).abs() < 1e-6);
+        assert!((model.calculate(5.0) - 6.0).abs() < 1e-6);
+
+        // Interpolation
+        // x=0.5 -> between 1.0 and 1.5 (midpoint 1.25)
+        assert!((model.calculate(0.5) - 1.25).abs() < 1e-6);
+        // x=3.5 -> between 2.0 (y=2.5) and 5.0 (y=6.0). weight = (3.5-2)/(5-2) = 1.5/3 = 0.5.
+        // y = 2.5 + 0.5 * (6.0 - 2.5) = 2.5 + 1.75 = 4.25
+        assert!((model.calculate(3.5) - 4.25).abs() < 1e-6);
+
+        // Clamping
+        assert!((model.calculate(-1.0) - 1.0).abs() < 1e-6);
+        assert!((model.calculate(20.0) - 15.0).abs() < 1e-6);
     }
     #[test]
     fn test_gp_unsorted_insertion() {

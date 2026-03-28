@@ -1,4 +1,4 @@
-use crate::buildup::{BuildupError, BuildupModel, GPBuildupProvider};
+use crate::buildup::{BuildupError, BuildupModel, BuildupProvider};
 use crate::mass_attenuation::{
     GroupIndex, MassAttenuationProvider, MaterialIndex, MaterialRegistry,
 };
@@ -39,7 +39,7 @@ impl MaterialPhysicsTable {
         registry: &MaterialRegistry,
         energy_groups: &[f32],
         mu_provider: &impl MassAttenuationProvider,
-        buildup_provider: &GPBuildupProvider,
+        buildup_provider: &impl BuildupProvider<BuildupModel>,
     ) -> Result<Self, MaterialPhysicsError> {
         let num_materials = material_names.len();
         let num_groups = energy_groups.len();
@@ -71,7 +71,7 @@ impl MaterialPhysicsTable {
                 let model = if buildup_source.eq_ignore_ascii_case("none") {
                     BuildupModel::Constant(1.0)
                 } else {
-                    buildup_provider.interpolate(buildup_source, energy)?
+                    buildup_provider.get_model(buildup_source, energy)?
                 };
                 buildup_models.push(model);
             }
@@ -105,7 +105,7 @@ impl MaterialPhysicsTable {
     }
 
     #[cfg(test)]
-    pub fn generate_for_test(
+    pub(crate) fn generate_for_test(
         mu_data: Vec<f32>,
         buildup_models: Vec<BuildupModel>,
         num_materials: usize,

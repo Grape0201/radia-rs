@@ -1,4 +1,5 @@
 pub(crate) const EPSILON: f32 = 1e-6; // length [cm]
+pub(crate) const EPSILON2: f32 = 1e-12; // length [cm]
 pub(crate) const T_EPSILON: f32 = 1e-6; // parameter [unitless]
 pub(crate) const O_EPSILON: f32 = 1e-6; // optical thickness [unitless]
 pub(crate) const E_EPSILON: f32 = 1e-9; // energy [MeV]

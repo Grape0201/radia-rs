@@ -1,6 +1,7 @@
 use glam::Vec3A;
 use rayon::prelude::*;
 
+use crate::constants::EPSILON2;
 use crate::csg::World;
 use crate::mass_attenuation::MaterialIndex;
 use crate::primitive::Ray;
@@ -124,7 +125,7 @@ pub fn calculate_dose_rate(
             collector.begin_source(source.position, source.intensity);
             let ray = &rays[i];
             let distance_sq = ray.vector.length_squared();
-            if distance_sq < 1e-10 {
+            if distance_sq < EPSILON2 {
                 continue;
             }
 

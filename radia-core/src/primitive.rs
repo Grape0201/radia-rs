@@ -1,5 +1,449 @@
 use crate::constants::EPSILON;
-use glam::Vec3A;
+use glam::{Vec3A, Vec4};
+
+#[derive(Debug, Clone, Default)]
+pub struct SphereData {
+    pub centers: Vec<Vec3A>,
+    pub radius2s: Vec<f32>,
+}
+
+impl SphereData {
+    pub fn push(&mut self, center: Vec3A, radius2: f32) {
+        self.centers.push(center);
+        self.radius2s.push(radius2);
+    }
+
+    pub fn get_intersections(&self, ray: &Ray, results: &mut Vec<f32>) {
+        let a = ray.vector.length_squared();
+        let inv_a = 1.0 / a;
+        let origin = ray.origin;
+        let vector = ray.vector;
+
+        let mut i = 0;
+        // SIMD loop for 4 spheres at once
+        while i + 4 <= self.centers.len() {
+            let c0 = self.centers[i];
+            let c1 = self.centers[i+1];
+            let c2 = self.centers[i+2];
+            let c3 = self.centers[i+3];
+            
+            let cx = Vec4::new(c0.x, c1.x, c2.x, c3.x);
+            let cy = Vec4::new(c0.y, c1.y, c2.y, c3.y);
+            let cz = Vec4::new(c0.z, c1.z, c2.z, c3.z);
+            let r2 = Vec4::new(self.radius2s[i], self.radius2s[i+1], self.radius2s[i+2], self.radius2s[i+3]);
+            
+            let ocx = origin.x - cx;
+            let ocy = origin.y - cy;
+            let ocz = origin.z - cz;
+            
+            let b = ocx * vector.x + ocy * vector.y + ocz * vector.z;
+            let c = ocx*ocx + ocy*ocy + ocz*ocz - r2;
+            let discriminant = b*b - a*c;
+            
+            let mask = discriminant.cmpgt(Vec4::splat(EPSILON));
+            if mask.any() {
+                let sqrt_d = discriminant.abs().sqrt();
+                let t0 = (-b - sqrt_d) * inv_a;
+                let t1 = (-b + sqrt_d) * inv_a;
+                
+                let m = mask.bitmask();
+                for j in 0..4 {
+                    if (m & (1 << j)) != 0 {
+                        let val0 = t0.to_array()[j];
+                        let val1 = t1.to_array()[j];
+                        if val0 > SEGMENT_MIN && val0 < SEGMENT_MAX { results.push(val0); }
+                        if val1 > SEGMENT_MIN && val1 < SEGMENT_MAX { results.push(val1); }
+                    }
+                }
+            }
+            i += 4;
+        }
+
+        // Remainder loop
+        for (center, radius2) in self.centers.iter().zip(&self.radius2s).skip(i) {
+            let oc = ray.origin - *center;
+            let a = ray.vector.length_squared();
+            let b = oc.dot(ray.vector);
+            let c = oc.length_squared() - radius2;
+            let discriminant = b * b - a * c;
+            if discriminant > EPSILON {
+                let sqrt_d = discriminant.sqrt();
+                let t0 = (-b - sqrt_d) / a;
+                let t1 = (-b + sqrt_d) / a;
+                if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX { results.push(t0); }
+                if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX { results.push(t1); }
+            } else if discriminant.abs() <= EPSILON {
+                let t = -b / a;
+                if t > SEGMENT_MIN && t < SEGMENT_MAX { results.push(t); }
+            }
+        }
+    }
+
+    pub fn get_ranges(&self, ray: &Ray, global_indices: &[usize], results: &mut [(f32, f32)]) {
+        let a = ray.vector.length_squared();
+        let inv_a = 1.0 / a;
+        let origin = ray.origin;
+        let vector = ray.vector;
+
+        let mut i = 0;
+        // SIMD loop for 4 spheres at once
+        while i + 4 <= self.centers.len() {
+            let c0 = self.centers[i];
+            let c1 = self.centers[i+1];
+            let c2 = self.centers[i+2];
+            let c3 = self.centers[i+3];
+            
+            let cx = Vec4::new(c0.x, c1.x, c2.x, c3.x);
+            let cy = Vec4::new(c0.y, c1.y, c2.y, c3.y);
+            let cz = Vec4::new(c0.z, c1.z, c2.z, c3.z);
+            let r2 = Vec4::new(self.radius2s[i], self.radius2s[i+1], self.radius2s[i+2], self.radius2s[i+3]);
+            
+            let ocx = origin.x - cx;
+            let ocy = origin.y - cy;
+            let ocz = origin.z - cz;
+            
+            let b = ocx * vector.x + ocy * vector.y + ocz * vector.z;
+            let c = ocx*ocx + ocy*ocy + ocz*ocz - r2;
+            let discriminant = b*b - a*c;
+            
+            let mask = discriminant.cmpgt(Vec4::ZERO);
+            let m = mask.bitmask();
+            let sqrt_d = discriminant.abs().sqrt();
+            let t0 = (-b - sqrt_d) * inv_a;
+            let t1 = (-b + sqrt_d) * inv_a;
+
+            for j in 0..4 {
+                let global_idx = global_indices[i+j];
+                if (m & (1 << j)) != 0 {
+                    results[global_idx] = (t0.to_array()[j], t1.to_array()[j]);
+                } else {
+                    results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                }
+            }
+            i += 4;
+        }
+
+        // Remainder loop
+        for j in i..self.centers.len() {
+            let oc = origin - self.centers[j];
+            let b = oc.dot(vector);
+            let c = oc.length_squared() - self.radius2s[j];
+            let discriminant = b * b - a * c;
+            let global_idx = global_indices[j];
+            if discriminant > 0.0 {
+                let sqrt_d = discriminant.sqrt();
+                results[global_idx] = ((-b - sqrt_d) * inv_a, (-b + sqrt_d) * inv_a);
+            } else {
+                results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn contains(&self, index: usize, p: &Vec3A) -> bool {
+        let center = self.centers[index];
+        let radius2 = self.radius2s[index];
+        let dist_sq = (*p - center).length_squared();
+        dist_sq <= radius2 + EPSILON
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RPPData {
+    pub mins: Vec<Vec3A>,
+    pub maxs: Vec<Vec3A>,
+}
+
+impl RPPData {
+    pub fn push(&mut self, min: Vec3A, max: Vec3A) {
+        self.mins.push(min);
+        self.maxs.push(max);
+    }
+
+    pub fn get_intersections(&self, ray: &Ray, results: &mut Vec<f32>) {
+        let inv_dir = 1.0 / ray.vector;
+        let origin = ray.origin;
+
+        let mut i = 0;
+        while i + 4 <= self.mins.len() {
+            let min0 = self.mins[i];
+            let min1 = self.mins[i+1];
+            let min2 = self.mins[i+2];
+            let min3 = self.mins[i+3];
+            let max0 = self.maxs[i];
+            let max1 = self.maxs[i+1];
+            let max2 = self.maxs[i+2];
+            let max3 = self.maxs[i+3];
+
+            let t0_0 = (min0 - origin) * inv_dir;
+            let t0_1 = (min1 - origin) * inv_dir;
+            let t0_2 = (min2 - origin) * inv_dir;
+            let t0_3 = (min3 - origin) * inv_dir;
+            let t1_0 = (max0 - origin) * inv_dir;
+            let t1_1 = (max1 - origin) * inv_dir;
+            let t1_2 = (max2 - origin) * inv_dir;
+            let t1_3 = (max3 - origin) * inv_dir;
+
+            let tmin_0 = t0_0.min(t1_0);
+            let tmin_1 = t0_1.min(t1_1);
+            let tmin_2 = t0_2.min(t1_2);
+            let tmin_3 = t0_3.min(t1_3);
+            let tmax_0 = t0_0.max(t1_0);
+            let tmax_1 = t0_1.max(t1_1);
+            let tmax_2 = t0_2.max(t1_2);
+            let tmax_3 = t0_3.max(t1_3);
+
+            let tmin = Vec4::new(tmin_0.max_element(), tmin_1.max_element(), tmin_2.max_element(), tmin_3.max_element());
+            let tmax = Vec4::new(tmax_0.min_element(), tmax_1.min_element(), tmax_2.min_element(), tmax_3.min_element());
+
+            let mask = tmin.cmple(tmax + Vec4::splat(EPSILON));
+            let m = mask.bitmask();
+            for j in 0..4 {
+                if (m & (1 << j)) != 0 {
+                    let val0 = tmin.to_array()[j];
+                    let val1 = tmax.to_array()[j];
+                    if val0 > SEGMENT_MIN && val0 < SEGMENT_MAX { results.push(val0); }
+                    if val1 > SEGMENT_MIN && val1 < SEGMENT_MAX { results.push(val1); }
+                }
+            }
+            i += 4;
+        }
+
+        // Remainder loop
+        for (min, max) in self.mins.iter().zip(&self.maxs).skip(i) {
+            let t0 = (*min - ray.origin) * inv_dir;
+            let t1 = (*max - ray.origin) * inv_dir;
+            let tmin_v = t0.min(t1);
+            let tmax_v = t0.max(t1);
+            let tmin = tmin_v.max_element();
+            let tmax = tmax_v.min_element();
+            if tmin <= tmax + EPSILON {
+                if tmin > SEGMENT_MIN && tmin < SEGMENT_MAX { results.push(tmin); }
+                if tmax > SEGMENT_MIN && tmax < SEGMENT_MAX { results.push(tmax); }
+            }
+        }
+    }
+
+    pub fn get_ranges(&self, ray: &Ray, global_indices: &[usize], results: &mut [(f32, f32)]) {
+        let inv_dir = 1.0 / ray.vector;
+        let origin = ray.origin;
+
+        let mut i = 0;
+        while i + 4 <= self.mins.len() {
+            let t0_0 = (self.mins[i] - origin) * inv_dir;
+            let t0_1 = (self.mins[i+1] - origin) * inv_dir;
+            let t0_2 = (self.mins[i+2] - origin) * inv_dir;
+            let t0_3 = (self.mins[i+3] - origin) * inv_dir;
+            let t1_0 = (self.maxs[i] - origin) * inv_dir;
+            let t1_1 = (self.maxs[i+1] - origin) * inv_dir;
+            let t1_2 = (self.maxs[i+2] - origin) * inv_dir;
+            let t1_3 = (self.maxs[i+3] - origin) * inv_dir;
+
+            let tmin_0 = t0_0.min(t1_0);
+            let tmin_1 = t0_1.min(t1_1);
+            let tmin_2 = t0_2.min(t1_2);
+            let tmin_3 = t0_3.min(t1_3);
+            let tmax_0 = t0_0.max(t1_0);
+            let tmax_1 = t0_1.max(t1_1);
+            let tmax_2 = t0_2.max(t1_2);
+            let tmax_3 = t0_3.max(t1_3);
+
+            let tmin = glam::Vec4::new(tmin_0.max_element(), tmin_1.max_element(), tmin_2.max_element(), tmin_3.max_element());
+            let tmax = glam::Vec4::new(tmax_0.min_element(), tmax_1.min_element(), tmax_2.min_element(), tmax_3.min_element());
+
+            let mask = tmin.cmple(tmax + glam::Vec4::splat(EPSILON));
+            let m = mask.bitmask();
+            for j in 0..4 {
+                let global_idx = global_indices[i+j];
+                if (m & (1 << j)) != 0 {
+                    results[global_idx] = (tmin.to_array()[j], tmax.to_array()[j]);
+                } else {
+                    results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                }
+            }
+            i += 4;
+        }
+
+        for j in i..self.mins.len() {
+            let t0 = (self.mins[j] - origin) * inv_dir;
+            let t1 = (self.maxs[j] - origin) * inv_dir;
+            let tmin_v = t0.min(t1);
+            let tmax_v = t0.max(t1);
+            let tmin = tmin_v.max_element();
+            let tmax = tmax_v.min_element();
+            let global_idx = global_indices[j];
+            if tmin <= tmax + EPSILON {
+                results[global_idx] = (tmin, tmax);
+            } else {
+                results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn contains(&self, index: usize, p: &Vec3A) -> bool {
+        let min = self.mins[index];
+        let max = self.maxs[index];
+        p.cmpge(min - EPSILON).all() && p.cmple(max + EPSILON).all()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CylinderData {
+    pub centers: Vec<Vec3A>,
+    pub directions: Vec<Vec3A>,
+    pub radius2s: Vec<f32>,
+    pub half_heights: Vec<f32>,
+}
+
+impl CylinderData {
+    pub fn push(&mut self, center: Vec3A, direction: Vec3A, radius2: f32, half_height: f32) {
+        self.centers.push(center);
+        self.directions.push(direction);
+        self.radius2s.push(radius2);
+        self.half_heights.push(half_height);
+    }
+
+    pub fn get_ranges(&self, ray: &Ray, global_indices: &[usize], results: &mut [(f32, f32)]) {
+        for (i, (&center, &direction)) in self.centers.iter().zip(&self.directions).enumerate() {
+            let radius2 = self.radius2s[i];
+            let half_height = self.half_heights[i];
+            let global_idx = global_indices[i];
+
+            if half_height <= EPSILON {
+                results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                continue;
+            }
+            let axis = direction;
+            let v = ray.vector;
+            let w = ray.origin - center;
+
+            let v_cross_axis = v.cross(axis);
+            let w_cross_axis = w.cross(axis);
+
+            let a = v_cross_axis.length_squared();
+            let b = w_cross_axis.dot(v_cross_axis);
+            let c = w_cross_axis.length_squared() - radius2;
+
+            let mut t_min = f32::INFINITY;
+            let mut t_max = f32::NEG_INFINITY;
+
+            if a.abs() > EPSILON {
+                let discriminant = b * b - a * c;
+                if discriminant > 0.0 {
+                    let sqrt_d = discriminant.sqrt();
+                    for &t in &[(-b - sqrt_d) / a, (-b + sqrt_d) / a] {
+                        let point = ray.origin + v * t;
+                        let axial = (point - center).dot(axis);
+                        if axial.abs() <= half_height + EPSILON {
+                            if t < t_min { t_min = t; }
+                            if t > t_max { t_max = t; }
+                        }
+                    }
+                }
+            }
+
+            let axis_dot_dir = v.dot(axis);
+            if axis_dot_dir.abs() > EPSILON {
+                for &sign in &[1.0f32, -1.0f32] {
+                    let cap_center = center + axis * (sign * half_height);
+                    let t = (cap_center - ray.origin).dot(axis) / axis_dot_dir;
+                    let point = ray.origin + v * t;
+                    if (point - cap_center).length_squared() <= radius2 + EPSILON {
+                        if t < t_min { t_min = t; }
+                        if t > t_max { t_max = t; }
+                    }
+                }
+            }
+
+            if t_min <= t_max {
+                results[global_idx] = (t_min, t_max);
+            } else {
+                results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+            }
+        }
+    }
+
+    pub fn get_intersections(&self, ray: &Ray, results: &mut Vec<f32>) {
+        for i in 0..self.centers.len() {
+            let center = self.centers[i];
+            let direction = self.directions[i];
+            let radius2 = self.radius2s[i];
+            let half_height = self.half_heights[i];
+
+            if half_height <= EPSILON { continue; }
+            let axis = direction;
+            let v = ray.vector;
+            let w = ray.origin - center;
+
+            let v_cross_axis = v.cross(axis);
+            let w_cross_axis = w.cross(axis);
+
+            let a = v_cross_axis.length_squared();
+            let b = w_cross_axis.dot(v_cross_axis);
+            let c = w_cross_axis.length_squared() - radius2;
+
+            if a.abs() > EPSILON {
+                let discriminant = b * b - a * c;
+                if discriminant > EPSILON {
+                    let sqrt_d = discriminant.sqrt();
+                    for &t in &[(-b - sqrt_d) / a, (-b + sqrt_d) / a] {
+                        let point = ray.origin + ray.vector * t;
+                        let axial = (point - center).dot(axis);
+                        if axial.abs() <= half_height + EPSILON {
+                            if t > SEGMENT_MIN && t < SEGMENT_MAX { results.push(t); }
+                        }
+                    }
+                } else if discriminant.abs() <= EPSILON {
+                    let t = -b / a;
+                    let point = ray.origin + ray.vector * t;
+                    let axial = (point - center).dot(axis);
+                    if axial.abs() <= half_height + EPSILON {
+                        if t > SEGMENT_MIN && t < SEGMENT_MAX { results.push(t); }
+                    }
+                }
+            }
+
+            let axis_dot_dir = ray.vector.dot(axis);
+            if axis_dot_dir.abs() > EPSILON {
+                for &sign in &[1.0f32, -1.0f32] {
+                    let cap_center = center + axis * (sign * half_height);
+                    let t = (cap_center - ray.origin).dot(axis) / axis_dot_dir;
+                    let point = ray.origin + ray.vector * t;
+                    let radial = point - cap_center;
+                    let radial_proj = radial.dot(axis);
+                    let radial_vec = radial - axis * radial_proj;
+                    if radial_vec.length_squared() <= radius2 + EPSILON {
+                        if t > SEGMENT_MIN && t < SEGMENT_MAX { results.push(t); }
+                    }
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn contains(&self, index: usize, p: &Vec3A) -> bool {
+        let center = self.centers[index];
+        let direction = self.directions[index];
+        let radius2 = self.radius2s[index];
+        let half_height = self.half_heights[index];
+
+        if half_height <= EPSILON { return false; }
+        let axis = direction;
+        let w = *p - center;
+        let axial = w.dot(axis);
+        if axial.abs() > half_height + EPSILON { return false; }
+        let radial = w - axis * axial;
+        radial.length_squared() <= radius2 + EPSILON
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PrimitiveTag {
+    Sphere(usize),
+    RPP(usize),
+    Cylinder(usize),
+}
 
 /// Only convex primitives are supported.
 #[derive(Debug, Clone)]
@@ -55,8 +499,8 @@ pub struct Ray {
     pub vector: Vec3A,
 }
 
-const SEGMENT_MIN: f32 = EPSILON;
-const SEGMENT_MAX: f32 = 1.0 - EPSILON;
+pub const SEGMENT_MIN: f32 = EPSILON;
+pub const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 
 #[doc(hidden)]
 #[derive(Debug, Clone)]
@@ -196,36 +640,6 @@ impl Primitive {
     }
 
     #[inline(always)]
-    pub(crate) fn contains(&self, p: &Vec3A) -> bool {
-        match self {
-            Primitive::Sphere { center, radius2 } => {
-                let dist_sq = (*p - *center).length_squared();
-                dist_sq <= *radius2 + EPSILON
-            }
-            Primitive::RectangularParallelPiped { min, max } => {
-                p.cmpge(*min - EPSILON).all() && p.cmple(*max + EPSILON).all()
-            }
-            Primitive::FiniteCylinder {
-                center,
-                direction,
-                radius2,
-                half_height,
-            } => {
-                if *half_height <= EPSILON {
-                    return false;
-                }
-                let axis = *direction;
-                let w = *p - *center;
-                let axial = w.dot(axis);
-                if axial.abs() > *half_height + EPSILON {
-                    return false;
-                }
-                let radial = w - axis * axial;
-                radial.length_squared() <= *radius2 + EPSILON
-            }
-        }
-    }
-
     pub fn sdf(&self, p: &Vec3A) -> f32 {
         match self {
             Primitive::Sphere { center, radius2 } => {

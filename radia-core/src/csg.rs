@@ -1,10 +1,9 @@
 use crate::constants::{EPSILON, T_EPSILON};
 use crate::material::MaterialIndex;
-use crate::primitive::{Primitive, Ray};
-use glam::Vec3A;
+use crate::primitive::{CylinderData, Primitive, PrimitiveTag, RPPData, Ray, SphereData, SEGMENT_MIN, SEGMENT_MAX};
 
 /// Flatten `CSGNode` into a list of instructions (Reverse Polish Notation)
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Instruction {
     Union,
     Intersection,
@@ -18,37 +17,53 @@ pub struct FlatCSG {
 }
 
 impl FlatCSG {
-    pub fn contains(&self, p: &Vec3A, primitives: &[Primitive]) -> bool {
-        let mut stack = [false; 16];
+    #[inline(always)]
+    pub fn evaluate_bitmask(&self, mask: u64) -> bool {
+        let mut stack = 0u64;
         let mut top = 0;
 
         for op in &self.instructions {
             match op {
                 Instruction::PushPrimitive(id) => {
-                    stack[top] = primitives[*id].contains(p);
+                    let bit = (mask >> id) & 1;
+                    stack |= bit << top;
                     top += 1;
                 }
                 Instruction::Union => {
-                    stack[top - 2] = stack[top - 2] || stack[top - 1];
+                    let b = (stack >> (top - 1)) & 1;
+                    let a = (stack >> (top - 2)) & 1;
+                    stack &= !(1 << (top - 1));
+                    stack &= !(1 << (top - 2));
+                    stack |= (a | b) << (top - 2);
                     top -= 1;
                 }
                 Instruction::Intersection => {
-                    stack[top - 2] = stack[top - 2] && stack[top - 1];
+                    let b = (stack >> (top - 1)) & 1;
+                    let a = (stack >> (top - 2)) & 1;
+                    stack &= !(1 << (top - 1));
+                    stack &= !(1 << (top - 2));
+                    stack |= (a & b) << (top - 2);
                     top -= 1;
                 }
                 Instruction::Difference => {
-                    stack[top - 2] = stack[top - 2] && !stack[top - 1];
+                    let b = (stack >> (top - 1)) & 1;
+                    let a = (stack >> (top - 2)) & 1;
+                    stack &= !(1 << (top - 1));
+                    stack &= !(1 << (top - 2));
+                    stack |= (a & !b) << (top - 2);
                     top -= 1;
                 }
                 Instruction::Complement => {
-                    stack[top - 1] = !stack[top - 1];
+                    let a = (stack >> (top - 1)) & 1;
+                    stack &= !(1 << (top - 1));
+                    stack |= (!a & 1) << (top - 1);
                 }
             }
         }
-        stack[0]
+        (stack & 1) != 0
     }
 
-    fn check_primitive_indices(
+    pub fn check_primitive_indices(
         &self,
         primitive_len: usize,
     ) -> Result<(), CSGInstructionValidationError> {
@@ -58,6 +73,9 @@ impl FlatCSG {
                     return Err(CSGInstructionValidationError::PrimitiveIndexOutOfBounds {
                         index: *id,
                     });
+                }
+                if *id >= 64 {
+                    return Err(CSGInstructionValidationError::Other("Only up to 64 primitives are supported for bitmask evaluation".to_string()));
                 }
             }
         }
@@ -70,8 +88,61 @@ pub struct Cell {
     pub material_id: MaterialIndex,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct PrimitiveStorage {
+    pub spheres: SphereData,
+    pub rpps: RPPData,
+    pub cylinders: CylinderData,
+    pub tags: Vec<PrimitiveTag>,
+    pub sphere_indices: Vec<usize>,
+    pub rpp_indices: Vec<usize>,
+    pub cylinder_indices: Vec<usize>,
+}
+
+impl PrimitiveStorage {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&mut self, primitive: Primitive) -> usize {
+        let id = self.tags.len();
+        match primitive {
+            Primitive::Sphere { center, radius2 } => {
+                let local_idx = self.spheres.centers.len();
+                self.tags.push(PrimitiveTag::Sphere(local_idx));
+                self.sphere_indices.push(id);
+                self.spheres.push(center, radius2);
+            }
+            Primitive::RectangularParallelPiped { min, max } => {
+                let local_idx = self.rpps.mins.len();
+                self.tags.push(PrimitiveTag::RPP(local_idx));
+                self.rpp_indices.push(id);
+                self.rpps.push(min, max);
+            }
+            Primitive::FiniteCylinder { center, direction, radius2, half_height } => {
+                let local_idx = self.cylinders.centers.len();
+                self.tags.push(PrimitiveTag::Cylinder(local_idx));
+                self.cylinder_indices.push(id);
+                self.cylinders.push(center, direction, radius2, half_height);
+            }
+        }
+        id
+    }
+
+    #[inline(always)]
+    pub fn get_ranges(&self, ray: &Ray, ranges: &mut [(f32, f32)]) {
+        self.spheres.get_ranges(ray, &self.sphere_indices, ranges);
+        self.rpps.get_ranges(ray, &self.rpp_indices, ranges);
+        self.cylinders.get_ranges(ray, &self.cylinder_indices, ranges);
+    }
+
+    pub fn len(&self) -> usize {
+        self.tags.len()
+    }
+}
+
 pub struct World {
-    pub primitives: Vec<Primitive>,
+    pub primitives: PrimitiveStorage,
     pub cells: Vec<Cell>,
 }
 
@@ -79,55 +150,131 @@ impl World {
     pub fn get_ray_segments(
         &self,
         ray: &Ray,
-        segments: &mut Vec<(Option<MaterialIndex>, f32)>, // result buffer: (material_id, length)
-        buf_ts: &mut Vec<f32>,                            // intersection points buffer
-        buf_merged_ts: &mut Vec<f32>,                     // merged intersection points buffer
+        segments: &mut Vec<(Option<MaterialIndex>, f32)>,
+        buf_ts: &mut Vec<f32>,
+        buf_ranges: &mut Vec<(f32, f32)>,
     ) {
         segments.clear();
-        buf_ts.clear();
-        buf_merged_ts.clear();
         let ray_length = ray.vector.length();
         if ray_length <= EPSILON {
             return;
         }
 
-        buf_ts.push(0.0);
-        buf_ts.push(1.0);
-
-        // Collect intersections for all primitives
-        for primitive in &self.primitives {
-            let ts = primitive.get_intersections(ray);
-            buf_ts.extend_from_slice(&ts.ts[0..ts.count]);
-        }
-
-        // Assume ts are not NaN
-        buf_ts.sort_unstable_by(|a, b| a.total_cmp(b));
-
-        for t in buf_ts {
-            if buf_merged_ts.is_empty() {
-                buf_merged_ts.push(*t);
-            } else {
-                let last = buf_merged_ts.last().unwrap();
-                if *t - *last > T_EPSILON {
-                    buf_merged_ts.push(*t);
+        let n_prims = self.primitives.len();
+        
+        // Fast path for <= 32 primitives using stack storage
+        if n_prims <= 32 {
+            let mut ranges = [(0.0f32, 0.0f32); 32];
+            self.primitives.get_ranges(ray, &mut ranges[..n_prims]);
+            
+            let mut ts = [0.0f32; 66]; // 2*32 + 2
+            ts[0] = 0.0;
+            ts[1] = 1.0;
+            let mut ts_count = 2;
+            for i in 0..n_prims {
+                let (t0, t1) = ranges[i];
+                if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX { ts[ts_count] = t0; ts_count += 1; }
+                if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX { ts[ts_count] = t1; ts_count += 1; }
+            }
+            
+            let ts_slice = &mut ts[..ts_count];
+            ts_slice.sort_unstable_by(|a, b| a.total_cmp(b));
+            
+            // Deduplicate
+            let mut unique_count = 0;
+            if ts_count > 0 {
+                unique_count = 1;
+                for i in 1..ts_count {
+                    if ts_slice[i] - ts_slice[unique_count - 1] >= T_EPSILON {
+                        ts_slice[unique_count] = ts_slice[i];
+                        unique_count += 1;
+                    }
                 }
             }
+            
+            for i in 0..unique_count.saturating_sub(1) {
+                let t0 = ts_slice[i];
+                let t1 = ts_slice[i+1];
+                let length = (t1 - t0) * ray_length;
+                let t_mid = (t0 + t1) * 0.5;
+                
+                let mut mask = 0u64;
+                let tm = glam::Vec4::splat(t_mid);
+                let mut j = 0;
+                while j + 4 <= n_prims {
+                    let mins = glam::Vec4::new(ranges[j].0, ranges[j+1].0, ranges[j+2].0, ranges[j+3].0);
+                    let maxs = glam::Vec4::new(ranges[j].1, ranges[j+1].1, ranges[j+2].1, ranges[j+3].1);
+                    mask |= ((tm.cmpge(mins) & tm.cmple(maxs)).bitmask() as u64) << j;
+                    j += 4;
+                }
+                for k in j..n_prims {
+                    if t_mid >= ranges[k].0 && t_mid <= ranges[k].1 {
+                        mask |= 1 << k;
+                    }
+                }
+                
+                let mut matid = None;
+                for cell in &self.cells {
+                    if cell.csg.evaluate_bitmask(mask) {
+                        matid = Some(cell.material_id);
+                        break;
+                    }
+                }
+                segments.push((matid, length));
+            }
+            return;
         }
 
-        for i in 0..buf_merged_ts.len().saturating_sub(1) {
-            let t0 = &buf_merged_ts[i];
-            let t1 = buf_merged_ts[i + 1];
-            let length = (t1 - t0) * ray_length;
+        buf_ts.clear();
+        buf_ranges.resize(n_prims, (f32::INFINITY, f32::NEG_INFINITY));
+        self.primitives.get_ranges(ray, buf_ranges);
 
+        buf_ts.push(0.0);
+        buf_ts.push(1.0);
+        for &(t0, t1) in buf_ranges.iter() {
+            if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX { buf_ts.push(t0); }
+            if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX { buf_ts.push(t1); }
+        }
+
+        buf_ts.sort_unstable_by(|a, b| a.total_cmp(b));
+        buf_ts.dedup_by(|a, b| *b - *a < T_EPSILON);
+
+        for i in 0..buf_ts.len().saturating_sub(1) {
+            let t0 = buf_ts[i];
+            let t1 = buf_ts[i + 1];
+            let length = (t1 - t0) * ray_length;
             let t_mid = (t0 + t1) * 0.5;
-            let p_mid = ray.origin + ray.vector * t_mid;
+
+            // Build bitmask for this segment using SIMD
+            let mut mask = 0u64;
+            let tm = glam::Vec4::splat(t_mid);
+            let mut j = 0;
+            while j + 4 <= buf_ranges.len() {
+                let r0 = buf_ranges[j];
+                let r1 = buf_ranges[j+1];
+                let r2 = buf_ranges[j+2];
+                let r3 = buf_ranges[j+3];
+                
+                let mins = glam::Vec4::new(r0.0, r1.0, r2.0, r3.0);
+                let maxs = glam::Vec4::new(r0.1, r1.1, r2.1, r3.1);
+                
+                let inside = tm.cmpge(mins) & tm.cmple(maxs);
+                mask |= (inside.bitmask() as u64) << j;
+                j += 4;
+            }
+            
+            // Remainder
+            for k in j..buf_ranges.len() {
+                let (rt0, rt1) = buf_ranges[k];
+                if t_mid >= rt0 && t_mid <= rt1 {
+                    mask |= 1 << k;
+                }
+            }
 
             let mut matid = None;
             for cell in &self.cells {
-                if cell.csg.contains(&p_mid, &self.primitives) {
+                if cell.csg.evaluate_bitmask(mask) {
                     matid = Some(cell.material_id);
-                    // Stop checking cells once we find the one containing this segment
-                    // Assuming cells do not overlap
                     break;
                 }
             }
@@ -157,6 +304,8 @@ pub enum CSGInstructionValidationError {
     StackUnderflow { index: usize, instruction: String },
     #[error("Stack not exhausted: {remaining} items left")]
     StackNotExhausted { remaining: usize },
+    #[error("{0}")]
+    Other(String),
 }
 
 pub fn validate_csg_instructions(
@@ -206,16 +355,18 @@ pub fn validate_csg_instructions(
 mod tests {
     use super::Instruction::*;
     use super::*;
+    use glam::Vec3A;
 
     #[test]
     fn test_check_primitive_indices() {
         let world = World {
-            primitives: vec![],
+            primitives: PrimitiveStorage::new(),
             cells: vec![],
         };
         assert!(world.validate().is_ok());
+
         let world = World {
-            primitives: vec![],
+            primitives: PrimitiveStorage::new(),
             cells: vec![Cell {
                 csg: FlatCSG {
                     instructions: vec![PushPrimitive(0)],
@@ -224,11 +375,14 @@ mod tests {
             }],
         };
         assert!(world.validate().is_err());
+
+        let mut primitives = PrimitiveStorage::new();
+        primitives.add(Primitive::Sphere {
+            center: Vec3A::ZERO,
+            radius2: 1.0,
+        });
         let world = World {
-            primitives: vec![Primitive::Sphere {
-                center: Vec3A::ZERO,
-                radius2: 1.0,
-            }],
+            primitives,
             cells: vec![Cell {
                 csg: FlatCSG {
                     instructions: vec![PushPrimitive(0)],
@@ -237,11 +391,14 @@ mod tests {
             }],
         };
         assert!(world.validate().is_ok());
+
+        let mut primitives = PrimitiveStorage::new();
+        primitives.add(Primitive::Sphere {
+            center: Vec3A::ZERO,
+            radius2: 1.0,
+        });
         let world = World {
-            primitives: vec![Primitive::Sphere {
-                center: Vec3A::ZERO,
-                radius2: 1.0,
-            }],
+            primitives,
             cells: vec![Cell {
                 csg: FlatCSG {
                     instructions: vec![PushPrimitive(0), PushPrimitive(1), Union],
@@ -255,7 +412,7 @@ mod tests {
     #[test]
     fn test_get_ray_segments_empty() {
         let world = World {
-            primitives: vec![],
+            primitives: PrimitiveStorage::new(),
             cells: vec![],
         };
         let ray = Ray {
@@ -264,20 +421,21 @@ mod tests {
         };
         let mut segments = Vec::new();
         let mut buf_ts = Vec::new();
-        let mut buf_merged_ts = Vec::new();
-        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_merged_ts);
+        let mut buf_ranges = Vec::new();
+        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_ranges);
         assert!(segments.is_empty());
         assert!(buf_ts.is_empty());
-        assert!(buf_merged_ts.is_empty());
     }
 
     #[test]
     fn test_get_ray_segments_one_sphere() {
+        let mut primitives = PrimitiveStorage::new();
+        primitives.add(Primitive::Sphere {
+            center: Vec3A::ZERO,
+            radius2: 1.0,
+        });
         let world = World {
-            primitives: vec![Primitive::Sphere {
-                center: Vec3A::ZERO,
-                radius2: 1.0,
-            }],
+            primitives,
             cells: vec![Cell {
                 csg: FlatCSG {
                     instructions: vec![PushPrimitive(0)],
@@ -291,8 +449,8 @@ mod tests {
         };
         let mut segments = Vec::new();
         let mut buf_ts = Vec::new();
-        let mut buf_merged_ts = Vec::new();
-        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_merged_ts);
+        let mut buf_ranges = Vec::new();
+        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_ranges);
         assert_eq!(segments.len(), 2);
         // in sphere, material_id == 0
         assert_eq!(segments[0].0, Some(0));

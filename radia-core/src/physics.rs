@@ -51,8 +51,7 @@ pub enum MaterialPhysicsError {
 
 /// Model representing the buildup factor and its required parameters
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
-pub(crate) enum BuildupModel {
+pub enum BuildupModel {
     /// Ignores scattering, or useful for testing with a fixed value (usually 1.0)
     Constant(f32),
 
@@ -204,6 +203,11 @@ impl MaterialPhysicsTable {
         model.calculate(optical_thickness)
     }
 
+    /// Returns the raw linear attenuation coefficient data.
+    pub fn get_mu_data(&self) -> &[f32] {
+        &self.mu_data
+    }
+
     /// Returns index-based closures for attenuation and buildup calculations.
     pub fn into_closures(
         self,
@@ -227,6 +231,21 @@ impl MaterialPhysicsTable {
         };
 
         (mu_closure, buildup_closure)
+    }
+
+    #[cfg(test)]
+    pub fn generate_for_test(
+        mu_data: Vec<f32>,
+        buildup_models: Vec<BuildupModel>,
+        num_materials: usize,
+        num_groups: usize,
+    ) -> Self {
+        Self {
+            mu_data,
+            buildup_models,
+            num_materials,
+            num_groups,
+        }
     }
 }
 

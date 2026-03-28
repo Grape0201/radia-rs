@@ -84,7 +84,7 @@ fn generate_test_environment() -> (
 
     // 3. Setup Geometry (Nested Spheres: Inner Iron core, Outer Water shell)
     let mut world = World {
-        primitives: vec![],
+        primitives: radia_core::csg::PrimitiveStorage::new(),
         cells: vec![],
     };
 
@@ -97,8 +97,8 @@ fn generate_test_environment() -> (
         radius2: 50.0 * 50.0,
     };
 
-    world.primitives.push(inner_sphere);
-    world.primitives.push(outer_sphere);
+    world.primitives.add(inner_sphere);
+    world.primitives.add(outer_sphere);
 
     // Cell 0: Iron core (material index 1)
     world.cells.push(Cell {
@@ -115,8 +115,6 @@ fn generate_test_environment() -> (
                 Instruction::PushPrimitive(1),
                 Instruction::PushPrimitive(0),
                 Instruction::Difference,
-                Instruction::PushPrimitive(1),
-                Instruction::Intersection,
             ],
         },
     });
@@ -143,15 +141,11 @@ fn benchmark_single(c: &mut Criterion) {
         generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
 
-    // We bind the closures outside of the loop to measure inner calculation speed
-    let (get_mu, get_buildup) = physics_table.into_closures();
-
     c.bench_function("calculate_dose_rate", |b| {
         b.iter(|| {
             let mut collector = FastCollector::default();
             calculate_dose_rate(
-                black_box(&get_mu),
-                black_box(&get_buildup),
+                black_box(&physics_table),
                 black_box(&world),
                 black_box(&conversion_factors),
                 black_box(&intensity_by_group),
@@ -167,7 +161,6 @@ fn benchmark_parallel(c: &mut Criterion) {
     let (world, physics_table, sources, conversion_factors, intensity_by_group) =
         generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
-    let (get_mu, get_buildup) = physics_table.into_closures();
 
     let mut group = c.benchmark_group("Parallel_Dose_Calculation");
     let chunk_sizes = [10, 50, 100, 500, 1000];
@@ -176,8 +169,7 @@ fn benchmark_parallel(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &s| {
             b.iter(|| {
                 calculate_dose_rate_parallel(
-                    black_box(&get_mu),
-                    black_box(&get_buildup),
+                    black_box(&physics_table),
                     &world,
                     &conversion_factors,
                     &intensity_by_group,

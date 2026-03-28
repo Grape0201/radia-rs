@@ -89,11 +89,10 @@ impl WorldInput {
             prim_map.insert(name.to_string(), index);
         }
 
-        let primitives: Vec<Primitive> = self
-            .primitives
-            .into_iter()
-            .map(|p| convert_primitive(&p))
-            .collect();
+        let mut storage = radia_core::csg::PrimitiveStorage::new();
+        for p in self.primitives {
+            storage.add(convert_primitive(&p));
+        }
 
         let cells: Vec<Cell> = self
             .cells
@@ -123,7 +122,7 @@ impl WorldInput {
             }
         }
 
-        Ok(World { primitives, cells })
+        Ok(World { primitives: storage, cells })
     }
 }
 
@@ -149,7 +148,7 @@ fn convert_primitive(p: &PrimitiveInput) -> Primitive {
             let length = v.length();
             Primitive::FiniteCylinder {
                 center: Vec3A::from_array(*center),
-                direction: v / length,
+                direction: if length > 0.0 { v / length } else { Vec3A::Z },
                 radius2: radius * radius,
                 half_height: length / 2.0,
             }

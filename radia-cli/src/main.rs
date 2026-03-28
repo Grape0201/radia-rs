@@ -105,13 +105,10 @@ fn main() -> Result<()> {
     )
     .into_diagnostic()?;
 
-    let (get_mu, get_buildup) = physics_table.into_closures();
-
     for det in &detectors {
         let chunk_size = 1000;
         let dose_rate = calculate_dose_rate_parallel(
-            &get_mu,
-            &get_buildup,
+            &physics_table,
             &world,
             &conversion_factors,
             &intensity_by_group,

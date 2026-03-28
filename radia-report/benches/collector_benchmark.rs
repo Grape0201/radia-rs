@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
-use radia_core::csg::{Cell, FlatCSG, Instruction, World};
+use radia_core::csg::{Cell, FlatCSG, Instruction, World, PrimitiveStorage};
 use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_no_collector};
 use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::physics::GPBuildupProvider;
@@ -80,14 +80,14 @@ fn generate_test_environment() -> (
     .expect("Failed to generate physics table");
 
     let mut world = World {
-        primitives: vec![],
+        primitives: PrimitiveStorage::new(),
         cells: vec![],
     };
-    world.primitives.push(Primitive::Sphere {
+    world.primitives.add(Primitive::Sphere {
         center: Vec3A::ZERO,
         radius2: 100.0,
     });
-    world.primitives.push(Primitive::Sphere {
+    world.primitives.add(Primitive::Sphere {
         center: Vec3A::ZERO,
         radius2: 2500.0,
     });
@@ -125,15 +125,13 @@ fn benchmark_collector_comparison(c: &mut Criterion) {
     let (world, physics_table, sources, conversion_factors, intensity_by_group) =
         generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
-    let (get_mu, get_buildup) = physics_table.into_closures();
 
     let mut group = c.benchmark_group("Dose_Collector_Comparisons");
 
     group.bench_function("1_bare_f32_calculate", |b| {
         b.iter(|| {
             calculate_dose_rate_no_collector(
-                black_box(&get_mu),
-                black_box(&get_buildup),
+                black_box(&physics_table),
                 black_box(&world),
                 black_box(&conversion_factors),
                 black_box(&intensity_by_group),
@@ -147,8 +145,7 @@ fn benchmark_collector_comparison(c: &mut Criterion) {
         b.iter(|| {
             let mut collector = FastCollector::default();
             calculate_dose_rate(
-                black_box(&get_mu),
-                black_box(&get_buildup),
+                black_box(&physics_table),
                 black_box(&world),
                 black_box(&conversion_factors),
                 black_box(&intensity_by_group),

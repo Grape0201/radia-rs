@@ -14,9 +14,5 @@ criterion.workspace = true
 pprof.workspace = true
 
 [[bench]]
-name = "intersection_benchmark"
-harness = false
-
-[[bench]]
 name = "kernel_benchmark"
 harness = false

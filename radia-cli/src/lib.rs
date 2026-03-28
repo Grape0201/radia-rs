@@ -4,7 +4,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 use miette::IntoDiagnostic;
-use radia_core::material::{
+use radia_core::mass_attenuation::{
     AtomicNumber, MassAttenuationProvider, MaterialDef, MaterialError, MaterialRegistry,
 };
 use serde::Deserialize;

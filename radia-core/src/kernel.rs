@@ -2,7 +2,7 @@ use glam::Vec3A;
 use rayon::prelude::*;
 
 use crate::csg::World;
-use crate::material::MaterialIndex;
+use crate::mass_attenuation::MaterialIndex;
 use crate::primitive::Ray;
 use crate::source::PointSource;
 
@@ -47,7 +47,12 @@ impl DoseCollector for FastCollector {
 /// 1. Group segments into contiguous blocks of the same material.
 /// 2. Compare the last block (closest to detector) with the previous distinct material block.
 /// 3. If the previous block's optical thickness is larger than the last block's, adopt the previous material.
-pub fn select_buildup_material(grouped_segments: &[(MaterialIndex, f32)], mus: &[f32], num_groups: usize, ig: usize) -> Option<MaterialIndex> {
+pub fn select_buildup_material(
+    grouped_segments: &[(MaterialIndex, f32)],
+    mus: &[f32],
+    num_groups: usize,
+    ig: usize,
+) -> Option<MaterialIndex> {
     if grouped_segments.is_empty() {
         return None;
     }
@@ -78,7 +83,7 @@ pub fn calculate_dose_rate(
 ) -> f32 {
     let mut total_dose = 0.0;
     let num_groups = conversion_factors.len();
-    
+
     // Thread-local buffers to avoid allocations
     let mut segments_buffer = Vec::with_capacity(32);
     let mut buffer_ts = Vec::with_capacity(64);
@@ -102,26 +107,35 @@ pub fn calculate_dose_rate(
     for source_batch in sources.chunks(batch_size) {
         rays.clear();
         for source in source_batch {
-            rays.push(Ray { 
-                origin: source.position, 
-                vector: detector_position - source.position 
+            rays.push(Ray {
+                origin: source.position,
+                vector: detector_position - source.position,
             });
         }
 
         if n_prims > 0 {
             batch_ranges.resize(rays.len() * n_prims, (f32::INFINITY, f32::NEG_INFINITY));
-            world.primitives.get_ranges_batched(&rays, &mut batch_ranges);
+            world
+                .primitives
+                .get_ranges_batched(&rays, &mut batch_ranges);
         }
 
         for (i, source) in source_batch.iter().enumerate() {
             collector.begin_source(source.position, source.intensity);
             let ray = &rays[i];
             let distance_sq = ray.vector.length_squared();
-            if distance_sq < 1e-10 { continue; }
+            if distance_sq < 1e-10 {
+                continue;
+            }
 
             if n_prims > 0 {
-                let ranges = &batch_ranges[i * n_prims .. (i + 1) * n_prims];
-                world.get_ray_segments_from_ranges(ray, ranges, &mut segments_buffer, &mut buffer_ts);
+                let ranges = &batch_ranges[i * n_prims..(i + 1) * n_prims];
+                world.get_ray_segments_from_ranges(
+                    ray,
+                    ranges,
+                    &mut segments_buffer,
+                    &mut buffer_ts,
+                );
             } else {
                 segments_buffer.clear();
                 segments_buffer.push((None, ray.vector.length()));
@@ -157,7 +171,8 @@ pub fn calculate_dose_rate(
 
             // 2. Loop over energy division
             for ig in 0..num_groups {
-                let buildup_material_id = select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
+                let buildup_material_id =
+                    select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
                 collector.record_buildup_material(buildup_material_id);
 
                 let total_ot = total_ots[ig];
@@ -220,25 +235,34 @@ pub fn calculate_dose_rate_no_collector(
     for source_batch in sources.chunks(batch_size) {
         rays.clear();
         for source in source_batch {
-            rays.push(Ray { 
-                origin: source.position, 
-                vector: detector_position - source.position 
+            rays.push(Ray {
+                origin: source.position,
+                vector: detector_position - source.position,
             });
         }
 
         if n_prims > 0 {
             batch_ranges.resize(rays.len() * n_prims, (f32::INFINITY, f32::NEG_INFINITY));
-            world.primitives.get_ranges_batched(&rays, &mut batch_ranges);
+            world
+                .primitives
+                .get_ranges_batched(&rays, &mut batch_ranges);
         }
 
         for (i, source) in source_batch.iter().enumerate() {
             let ray = &rays[i];
             let distance_sq = ray.vector.length_squared();
-            if distance_sq < 1e-10 { continue; }
+            if distance_sq < 1e-10 {
+                continue;
+            }
 
             if n_prims > 0 {
-                let ranges = &batch_ranges[i * n_prims .. (i + 1) * n_prims];
-                world.get_ray_segments_from_ranges(ray, ranges, &mut segments_buffer, &mut buffer_ts);
+                let ranges = &batch_ranges[i * n_prims..(i + 1) * n_prims];
+                world.get_ray_segments_from_ranges(
+                    ray,
+                    ranges,
+                    &mut segments_buffer,
+                    &mut buffer_ts,
+                );
             } else {
                 segments_buffer.clear();
                 segments_buffer.push((None, ray.vector.length()));
@@ -259,7 +283,7 @@ pub fn calculate_dose_rate_no_collector(
                     } else {
                         grouped_segments.push((m_idx, length));
                     }
-                    
+
                     let mus = &mu_data[m_idx * num_groups..(m_idx + 1) * num_groups];
                     for ig in 0..num_groups {
                         total_ots[ig] += mus[ig] * length;
@@ -271,7 +295,8 @@ pub fn calculate_dose_rate_no_collector(
             let mut source_dose = 0.0;
 
             for ig in 0..num_groups {
-                let buildup_material_id = select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
+                let buildup_material_id =
+                    select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
                 let total_ot = total_ots[ig];
                 let buildup = if let Some(mat_id) = buildup_material_id {
                     physics.get_buildup(mat_id, ig, total_ot)
@@ -318,8 +343,9 @@ pub fn calculate_dose_rate_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buildup::BuildupModel;
     use crate::csg::PrimitiveStorage;
-    use crate::physics::{MaterialPhysicsTable, BuildupModel};
+    use crate::physics::MaterialPhysicsTable;
 
     fn setup_dummy_physics() -> MaterialPhysicsTable {
         let mu_data = vec![0.0];
@@ -365,16 +391,25 @@ mod tests {
     fn test_select_buildup_material() {
         let _num_groups = 1;
         let mu_data = vec![1.0, 2.0]; // Mat0: mu=1, Mat1: mu=2
-        
+
         // Simple case: one material
-        assert_eq!(select_buildup_material(&[(0, 10.0)], &mu_data, 1, 0), Some(0));
+        assert_eq!(
+            select_buildup_material(&[(0, 10.0)], &mu_data, 1, 0),
+            Some(0)
+        );
 
         // Two materials: last is thicker
         // Mat0: OT = 1*1 = 1, Mat1: OT = 2*10 = 20
-        assert_eq!(select_buildup_material(&[(0, 1.0), (1, 10.0)], &mu_data, 1, 0), Some(1));
+        assert_eq!(
+            select_buildup_material(&[(0, 1.0), (1, 10.0)], &mu_data, 1, 0),
+            Some(1)
+        );
 
         // Two materials: previous is thicker
         // Mat0: OT = 1*10 = 10, Mat1: OT = 2*1 = 2
-        assert_eq!(select_buildup_material(&[(0, 10.0), (1, 1.0)], &mu_data, 1, 0), Some(0));
+        assert_eq!(
+            select_buildup_material(&[(0, 10.0), (1, 1.0)], &mu_data, 1, 0),
+            Some(0)
+        );
     }
 }

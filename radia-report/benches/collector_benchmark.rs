@@ -1,10 +1,10 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
-use radia_core::csg::{Cell, FlatCSG, Instruction, World, PrimitiveStorage};
+use radia_core::buildup::GPBuildupProvider;
+use radia_core::csg::{Cell, FlatCSG, Instruction, PrimitiveStorage, World};
 use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_no_collector};
-use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
-use radia_core::physics::GPBuildupProvider;
+use radia_core::mass_attenuation::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::primitive::Primitive;
 use radia_core::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
@@ -42,7 +42,7 @@ fn generate_test_environment() -> (
 
     let mut gp_provider = GPBuildupProvider::new();
     let dummy_params = vec![
-        radia_core::physics::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 0.5,
             a: 0.1,
             b: 2.0,
@@ -50,7 +50,7 @@ fn generate_test_environment() -> (
             d: 0.05,
             xk: 14.0,
         },
-        radia_core::physics::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 1.0,
             a: 0.12,
             b: 2.1,
@@ -58,7 +58,7 @@ fn generate_test_environment() -> (
             d: 0.04,
             xk: 14.4,
         },
-        radia_core::physics::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 10.0,
             a: 0.2,
             b: 1.3,

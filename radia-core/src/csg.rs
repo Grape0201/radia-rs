@@ -1,6 +1,9 @@
 use crate::constants::{EPSILON, T_EPSILON};
-use crate::material::MaterialIndex;
-use crate::primitive::{CylinderData, Primitive, PrimitiveTag, RPPData, Ray, SphereData, SEGMENT_MIN, SEGMENT_MAX};
+use crate::mass_attenuation::MaterialIndex;
+use crate::primitive::{CylinderData, Primitive, PrimitiveTag, RPPData, Ray, SphereData};
+
+pub const SEGMENT_MIN: f32 = EPSILON;
+pub const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 
 /// Flatten `CSGNode` into a list of instructions (Reverse Polish Notation)
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -18,7 +21,7 @@ pub struct FlatCSG {
 
 impl FlatCSG {
     #[inline(always)]
-    pub fn evaluate_bitmask(&self, mask: u64) -> bool {
+    fn evaluate_bitmask(&self, mask: u64) -> bool {
         let mut stack = 0u64;
         let mut top = 0;
 
@@ -63,7 +66,7 @@ impl FlatCSG {
         (stack & 1) != 0
     }
 
-    pub fn check_primitive_indices(
+    fn check_primitive_indices(
         &self,
         primitive_len: usize,
     ) -> Result<(), CSGInstructionValidationError> {
@@ -75,7 +78,9 @@ impl FlatCSG {
                     });
                 }
                 if *id >= 64 {
-                    return Err(CSGInstructionValidationError::Other("Only up to 64 primitives are supported for bitmask evaluation".to_string()));
+                    return Err(CSGInstructionValidationError::Other(
+                        "Only up to 64 primitives are supported for bitmask evaluation".to_string(),
+                    ));
                 }
             }
         }
@@ -90,13 +95,13 @@ pub struct Cell {
 
 #[derive(Default, Debug, Clone)]
 pub struct PrimitiveStorage {
-    pub spheres: SphereData,
-    pub rpps: RPPData,
-    pub cylinders: CylinderData,
-    pub tags: Vec<PrimitiveTag>,
-    pub sphere_indices: Vec<usize>,
-    pub rpp_indices: Vec<usize>,
-    pub cylinder_indices: Vec<usize>,
+    spheres: SphereData,
+    rpps: RPPData,
+    cylinders: CylinderData,
+    tags: Vec<PrimitiveTag>,
+    sphere_indices: Vec<usize>,
+    rpp_indices: Vec<usize>,
+    cylinder_indices: Vec<usize>,
 }
 
 impl PrimitiveStorage {
@@ -119,7 +124,12 @@ impl PrimitiveStorage {
                 self.rpp_indices.push(id);
                 self.rpps.push(min, max);
             }
-            Primitive::FiniteCylinder { center, direction, radius2, half_height } => {
+            Primitive::FiniteCylinder {
+                center,
+                direction,
+                radius2,
+                half_height,
+            } => {
                 let local_idx = self.cylinders.centers.len();
                 self.tags.push(PrimitiveTag::Cylinder(local_idx));
                 self.cylinder_indices.push(id);
@@ -129,18 +139,14 @@ impl PrimitiveStorage {
         id
     }
 
-    #[inline(always)]
-    pub fn get_ranges(&self, ray: &Ray, ranges: &mut [(f32, f32)]) {
-        self.spheres.get_ranges(ray, &self.sphere_indices, ranges);
-        self.rpps.get_ranges(ray, &self.rpp_indices, ranges);
-        self.cylinders.get_ranges(ray, &self.cylinder_indices, ranges);
-    }
-
-    pub fn get_ranges_batched(&self, rays: &[Ray], results: &mut [(f32, f32)]) {
+    pub(crate) fn get_ranges_batched(&self, rays: &[Ray], results: &mut [(f32, f32)]) {
         let n_prims = self.len();
-        self.spheres.get_ranges_batched(rays, &self.sphere_indices, n_prims, results);
-        self.rpps.get_ranges_batched(rays, &self.rpp_indices, n_prims, results);
-        self.cylinders.get_ranges_batched(rays, &self.cylinder_indices, n_prims, results);
+        self.spheres
+            .get_ranges_batched(rays, &self.sphere_indices, n_prims, results);
+        self.rpps
+            .get_ranges_batched(rays, &self.rpp_indices, n_prims, results);
+        self.cylinders
+            .get_ranges_batched(rays, &self.cylinder_indices, n_prims, results);
     }
 
     pub fn len(&self) -> usize {
@@ -154,35 +160,7 @@ pub struct World {
 }
 
 impl World {
-    pub fn get_ray_segments(
-        &self,
-        ray: &Ray,
-        segments: &mut Vec<(Option<MaterialIndex>, f32)>,
-        buf_ts: &mut Vec<f32>,
-        buf_ranges: &mut Vec<(f32, f32)>,
-    ) {
-        segments.clear();
-        let ray_length = ray.vector.length();
-        if ray_length <= EPSILON {
-            return;
-        }
-
-        let n_prims = self.primitives.len();
-        
-        // Fast path for <= 32 primitives using stack storage
-        if n_prims <= 32 {
-            let mut ranges = [(0.0f32, 0.0f32); 32];
-            self.primitives.get_ranges(ray, &mut ranges[..n_prims]);
-            self.get_ray_segments_from_ranges(ray, &ranges[..n_prims], segments, buf_ts);
-            return;
-        }
-
-        buf_ranges.resize(n_prims, (f32::INFINITY, f32::NEG_INFINITY));
-        self.primitives.get_ranges(ray, buf_ranges);
-        self.get_ray_segments_from_ranges(ray, buf_ranges, segments, buf_ts);
-    }
-
-    pub fn get_ray_segments_from_ranges(
+    pub(crate) fn get_ray_segments_from_ranges(
         &self,
         ray: &Ray,
         ranges: &[(f32, f32)],
@@ -199,12 +177,16 @@ impl World {
         buf_ts.push(0.0);
         buf_ts.push(1.0);
         for &(t0, t1) in ranges.iter() {
-            if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX { buf_ts.push(t0); }
-            if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX { buf_ts.push(t1); }
+            if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX {
+                buf_ts.push(t0);
+            }
+            if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX {
+                buf_ts.push(t1);
+            }
         }
 
         buf_ts.sort_unstable_by(|a, b| a.total_cmp(b));
-        
+
         // Deduplicate
         if !buf_ts.is_empty() {
             let mut unique_count = 1;
@@ -229,18 +211,18 @@ impl World {
             let mut j = 0;
             while j + 4 <= ranges.len() {
                 let r0 = ranges[j];
-                let r1 = ranges[j+1];
-                let r2 = ranges[j+2];
-                let r3 = ranges[j+3];
-                
+                let r1 = ranges[j + 1];
+                let r2 = ranges[j + 2];
+                let r3 = ranges[j + 3];
+
                 let mins = glam::Vec4::new(r0.0, r1.0, r2.0, r3.0);
                 let maxs = glam::Vec4::new(r0.1, r1.1, r2.1, r3.1);
-                
+
                 let inside = tm.cmpge(mins) & tm.cmple(maxs);
                 mask |= (inside.bitmask() as u64) << j;
                 j += 4;
             }
-            
+
             // Remainder
             for k in j..ranges.len() {
                 let (rt0, rt1) = ranges[k];
@@ -399,8 +381,7 @@ mod tests {
         };
         let mut segments = Vec::new();
         let mut buf_ts = Vec::new();
-        let mut buf_ranges = Vec::new();
-        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_ranges);
+        world.get_ray_segments_from_ranges(&ray, &[], &mut segments, &mut buf_ts);
         assert!(segments.is_empty());
         assert!(buf_ts.is_empty());
     }
@@ -427,8 +408,13 @@ mod tests {
         };
         let mut segments = Vec::new();
         let mut buf_ts = Vec::new();
-        let mut buf_ranges = Vec::new();
-        world.get_ray_segments(&ray, &mut segments, &mut buf_ts, &mut buf_ranges);
+        let mut ranges = vec![(f32::INFINITY, f32::NEG_INFINITY); world.primitives.len()];
+        world
+            .primitives
+            .get_ranges_batched(&[ray.clone()], &mut ranges);
+
+        world.get_ray_segments_from_ranges(&ray, &ranges, &mut segments, &mut buf_ts);
+        println!("segments: {:?}", segments);
         assert_eq!(segments.len(), 2);
         // in sphere, material_id == 0
         assert_eq!(segments[0].0, Some(0));

@@ -2,7 +2,7 @@ use crate::csg_parser::{parse_csg, validate_csg_syntax};
 use garde::Validate;
 use glam::Vec3A;
 use radia_core::csg::{Cell, Instruction, World};
-use radia_core::material::MaterialIndex;
+use radia_core::mass_attenuation::MaterialIndex;
 use radia_core::primitive::Primitive;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -122,7 +122,10 @@ impl WorldInput {
             }
         }
 
-        Ok(World { primitives: storage, cells })
+        Ok(World {
+            primitives: storage,
+            cells,
+        })
     }
 }
 

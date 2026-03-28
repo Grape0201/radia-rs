@@ -1,8 +1,9 @@
 use miette::{IntoDiagnostic, Result};
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
+use radia_core::buildup::GPBuildupProvider;
 use radia_core::kernel::calculate_dose_rate_parallel;
-use radia_core::material::{MaterialIndex, MaterialRegistry};
-use radia_core::physics::{GPBuildupProvider, MaterialPhysicsTable};
+use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
+use radia_core::physics::MaterialPhysicsTable;
 use radia_input::SimulationInput;
 use std::env;
 use tracing::info;

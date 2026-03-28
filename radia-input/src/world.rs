@@ -2,7 +2,7 @@ use crate::csg_parser::{parse_csg, validate_csg_syntax};
 use garde::Validate;
 use glam::Vec3A;
 use radia_core::csg::{Cell, Instruction, World};
-use radia_core::material::MaterialIndex;
+use radia_core::mass_attenuation::MaterialIndex;
 use radia_core::primitive::Primitive;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -89,11 +89,10 @@ impl WorldInput {
             prim_map.insert(name.to_string(), index);
         }
 
-        let primitives: Vec<Primitive> = self
-            .primitives
-            .into_iter()
-            .map(|p| convert_primitive(&p))
-            .collect();
+        let mut storage = radia_core::csg::PrimitiveStorage::new();
+        for p in self.primitives {
+            storage.add(convert_primitive(&p));
+        }
 
         let cells: Vec<Cell> = self
             .cells
@@ -123,7 +122,10 @@ impl WorldInput {
             }
         }
 
-        Ok(World { primitives, cells })
+        Ok(World {
+            primitives: storage,
+            cells,
+        })
     }
 }
 
@@ -149,7 +151,7 @@ fn convert_primitive(p: &PrimitiveInput) -> Primitive {
             let length = v.length();
             Primitive::FiniteCylinder {
                 center: Vec3A::from_array(*center),
-                direction: v / length,
+                direction: if length > 0.0 { v / length } else { Vec3A::Z },
                 radius2: radius * radius,
                 half_height: length / 2.0,
             }

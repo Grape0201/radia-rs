@@ -1,5 +1,5 @@
 use garde::Validate;
-use radia_core::material::MaterialDef;
+use radia_core::mass_attenuation::MaterialDef;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

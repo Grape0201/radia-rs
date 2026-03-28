@@ -1,10 +1,10 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
+use radia_core::buildup::GPBuildupProvider;
 use radia_core::csg::{Cell, FlatCSG, Instruction, World};
 use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_parallel};
-use radia_core::material::{DummyProvider, MaterialDef, MaterialRegistry};
-use radia_core::physics::GPBuildupProvider;
+use radia_core::mass_attenuation::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::primitive::Primitive;
 use radia_core::source::{PointSource, generate_sphere_source};
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ fn generate_test_environment() -> (
     // 2. Setup Physics (Attenuation and Buildup)
     let mut gp_provider = GPBuildupProvider::new();
     let dummy_params = vec![
-        radia_core::physics::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 0.5,
             a: 0.1,
             b: 2.0,
@@ -53,7 +53,7 @@ fn generate_test_environment() -> (
             d: 0.05,
             xk: 14.0,
         },
-        radia_core::physics::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 1.0,
             a: 0.12,
             b: 2.1,
@@ -61,7 +61,7 @@ fn generate_test_environment() -> (
             d: 0.04,
             xk: 14.4,
         },
-        radia_core::physics::GPParams {
+        radia_core::buildup::GPParams {
             energy_mev: 10.0,
             a: 0.2,
             b: 1.3,
@@ -84,7 +84,7 @@ fn generate_test_environment() -> (
 
     // 3. Setup Geometry (Nested Spheres: Inner Iron core, Outer Water shell)
     let mut world = World {
-        primitives: vec![],
+        primitives: radia_core::csg::PrimitiveStorage::new(),
         cells: vec![],
     };
 
@@ -97,8 +97,8 @@ fn generate_test_environment() -> (
         radius2: 50.0 * 50.0,
     };
 
-    world.primitives.push(inner_sphere);
-    world.primitives.push(outer_sphere);
+    world.primitives.add(inner_sphere);
+    world.primitives.add(outer_sphere);
 
     // Cell 0: Iron core (material index 1)
     world.cells.push(Cell {
@@ -115,8 +115,6 @@ fn generate_test_environment() -> (
                 Instruction::PushPrimitive(1),
                 Instruction::PushPrimitive(0),
                 Instruction::Difference,
-                Instruction::PushPrimitive(1),
-                Instruction::Intersection,
             ],
         },
     });
@@ -143,15 +141,11 @@ fn benchmark_single(c: &mut Criterion) {
         generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
 
-    // We bind the closures outside of the loop to measure inner calculation speed
-    let (get_mu, get_buildup) = physics_table.into_closures();
-
     c.bench_function("calculate_dose_rate", |b| {
         b.iter(|| {
             let mut collector = FastCollector::default();
             calculate_dose_rate(
-                black_box(&get_mu),
-                black_box(&get_buildup),
+                black_box(&physics_table),
                 black_box(&world),
                 black_box(&conversion_factors),
                 black_box(&intensity_by_group),
@@ -167,7 +161,6 @@ fn benchmark_parallel(c: &mut Criterion) {
     let (world, physics_table, sources, conversion_factors, intensity_by_group) =
         generate_test_environment();
     let detector_position = Vec3A::new(100.0, 0.0, 0.0);
-    let (get_mu, get_buildup) = physics_table.into_closures();
 
     let mut group = c.benchmark_group("Parallel_Dose_Calculation");
     let chunk_sizes = [10, 50, 100, 500, 1000];
@@ -176,8 +169,7 @@ fn benchmark_parallel(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &s| {
             b.iter(|| {
                 calculate_dose_rate_parallel(
-                    black_box(&get_mu),
-                    black_box(&get_buildup),
+                    black_box(&physics_table),
                     &world,
                     &conversion_factors,
                     &intensity_by_group,

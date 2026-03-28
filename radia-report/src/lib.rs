@@ -1,6 +1,6 @@
 use glam::Vec3A;
 use radia_core::kernel::DoseCollector;
-use radia_core::material::MaterialIndex;
+use radia_core::mass_attenuation::MaterialIndex;
 use serde::Serialize;
 
 /// Metadata for a simulation run.

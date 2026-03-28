@@ -1,8 +1,9 @@
 use miette::{IntoDiagnostic, Result};
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
+use radia_core::buildup::GPBuildupProvider;
 use radia_core::kernel::calculate_dose_rate_parallel;
-use radia_core::material::{MaterialIndex, MaterialRegistry};
-use radia_core::physics::{GPBuildupProvider, MaterialPhysicsTable};
+use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
+use radia_core::physics::MaterialPhysicsTable;
 use radia_input::SimulationInput;
 use std::env;
 use tracing::info;
@@ -93,6 +94,7 @@ fn main() -> Result<()> {
     let energy_groups = source.energy_groups;
     let intensity_by_group = source.intensity_by_group;
     let srcs = source.shape.build();
+    info!("Number of sources: {}", srcs.len());
 
     info!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(
@@ -105,13 +107,10 @@ fn main() -> Result<()> {
     )
     .into_diagnostic()?;
 
-    let (get_mu, get_buildup) = physics_table.into_closures();
-
     for det in &detectors {
         let chunk_size = 1000;
         let dose_rate = calculate_dose_rate_parallel(
-            &get_mu,
-            &get_buildup,
+            &physics_table,
             &world,
             &conversion_factors,
             &intensity_by_group,

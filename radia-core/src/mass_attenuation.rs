@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 pub type AtomicNumber = usize;
-
 pub type MaterialIndex = usize;
 pub type GroupIndex = usize;
 
@@ -54,11 +53,6 @@ impl MaterialRegistry {
     /// Adds a material to the registry manually.
     pub fn insert(&mut self, name: String, material: MaterialDef) {
         self.compositions.insert(name, material);
-    }
-
-    /// List available materials.
-    pub fn list_available(&self) -> Vec<String> {
-        self.compositions.keys().cloned().collect()
     }
 }
 

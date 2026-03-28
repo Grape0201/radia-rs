@@ -1,4 +1,4 @@
-use crate::constants::{EPSILON, EPSILON2};
+use crate::constants::EPSILON;
 use glam::Vec3A;
 
 pub struct PointSource {
@@ -18,9 +18,6 @@ pub fn generate_cylinder_source(
     let mut sources = Vec::with_capacity(nd_c * nd_h * nd_r);
 
     let height = axis.length();
-    if height < EPSILON2 {
-        return vec![];
-    }
     let w = axis / height;
 
     // Create an orthogonal basis (u, v, w)

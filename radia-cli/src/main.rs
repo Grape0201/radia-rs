@@ -93,6 +93,7 @@ fn main() -> Result<()> {
     let energy_groups = source.energy_groups;
     let intensity_by_group = source.intensity_by_group;
     let srcs = source.shape.build();
+    info!("Number of sources: {}", srcs.len());
 
     info!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(

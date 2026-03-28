@@ -82,7 +82,6 @@ pub fn calculate_dose_rate(
     // Thread-local buffers to avoid allocations
     let mut segments_buffer = Vec::with_capacity(32);
     let mut buffer_ts = Vec::with_capacity(64);
-    let mut buffer_ranges = Vec::with_capacity(32);
     let mut grouped_segments: Vec<(MaterialIndex, f32)> = Vec::with_capacity(32);
     let mut total_ots = vec![0.0; num_groups];
 
@@ -93,72 +92,99 @@ pub fn calculate_dose_rate(
         prefactors[ig] = conversion_factors[ig] * intensity_by_group[ig];
     }
 
-    for source in sources {
-        collector.begin_source(source.position, source.intensity);
-        let diff = detector_position - source.position;
-        let distance_sq = diff.length_squared();
-        if distance_sq < 1e-10 { continue; }
+    // Process sources in batches to optimize cache efficiency and enable
+    // vectorized intersection tests across multiple rays.
+    let batch_size = 64;
+    let n_prims = world.primitives.len();
+    let mut rays = Vec::with_capacity(batch_size);
+    let mut batch_ranges = vec![(f32::INFINITY, f32::NEG_INFINITY); batch_size * n_prims];
 
-        let ray = Ray { origin: source.position, vector: diff };
-        world.get_ray_segments(&ray, &mut segments_buffer, &mut buffer_ts, &mut buffer_ranges);
+    for source_batch in sources.chunks(batch_size) {
+        rays.clear();
+        for source in source_batch {
+            rays.push(Ray { 
+                origin: source.position, 
+                vector: detector_position - source.position 
+            });
+        }
 
-        // 1. Group contiguous segments and calculate total OTs for all energy groups at once
-        let mu_data = physics.get_mu_data();
-        grouped_segments.clear();
-        total_ots.fill(0.0);
-        for &(mat_id, length) in &segments_buffer {
-            if let Some(mat_id) = mat_id {
-                let m_idx = mat_id as MaterialIndex;
-                if let Some(last) = grouped_segments.last_mut() {
-                    if last.0 == m_idx {
-                        last.1 += length;
+        if n_prims > 0 {
+            batch_ranges.resize(rays.len() * n_prims, (f32::INFINITY, f32::NEG_INFINITY));
+            world.primitives.get_ranges_batched(&rays, &mut batch_ranges);
+        }
+
+        for (i, source) in source_batch.iter().enumerate() {
+            collector.begin_source(source.position, source.intensity);
+            let ray = &rays[i];
+            let distance_sq = ray.vector.length_squared();
+            if distance_sq < 1e-10 { continue; }
+
+            if n_prims > 0 {
+                let ranges = &batch_ranges[i * n_prims .. (i + 1) * n_prims];
+                world.get_ray_segments_from_ranges(ray, ranges, &mut segments_buffer, &mut buffer_ts);
+            } else {
+                segments_buffer.clear();
+                segments_buffer.push((None, ray.vector.length()));
+            }
+
+            // 1. Group contiguous segments and calculate total OTs for all energy groups at once
+            let mu_data = physics.get_mu_data();
+            grouped_segments.clear();
+            total_ots.fill(0.0);
+            for &(mat_id, length) in &segments_buffer {
+                if let Some(mat_id) = mat_id {
+                    let m_idx = mat_id as MaterialIndex;
+                    if let Some(last) = grouped_segments.last_mut() {
+                        if last.0 == m_idx {
+                            last.1 += length;
+                        } else {
+                            grouped_segments.push((m_idx, length));
+                        }
                     } else {
                         grouped_segments.push((m_idx, length));
                     }
-                } else {
-                    grouped_segments.push((m_idx, length));
-                }
 
-                let mus = &mu_data[m_idx * num_groups..(m_idx + 1) * num_groups];
-                for ig in 0..num_groups {
-                    total_ots[ig] += mus[ig] * length;
+                    let mus = &mu_data[m_idx * num_groups..(m_idx + 1) * num_groups];
+                    for ig in 0..num_groups {
+                        total_ots[ig] += mus[ig] * length;
+                    }
                 }
+                collector.record_ray_segment(mat_id, length, 0.0);
             }
-            collector.record_ray_segment(mat_id, length, 0.0);
+
+            let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
+            let mut source_dose = 0.0;
+
+            // 2. Loop over energy division
+            for ig in 0..num_groups {
+                let buildup_material_id = select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
+                collector.record_buildup_material(buildup_material_id);
+
+                let total_ot = total_ots[ig];
+                let buildup = if let Some(mat_id) = buildup_material_id {
+                    physics.get_buildup(mat_id, ig, total_ot)
+                } else {
+                    1.0
+                };
+                let material_attenuation = (-total_ot).exp();
+
+                let uncollided_flux = material_attenuation * intensity_by_group[ig];
+                let uncollided_dose = conversion_factors[ig] * uncollided_flux;
+                let group_total_dose = uncollided_dose * buildup;
+
+                collector.record_energy_group(
+                    ig,
+                    uncollided_flux * geometric_attenuation * source.intensity,
+                    buildup,
+                    uncollided_dose * geometric_attenuation * source.intensity,
+                    group_total_dose * geometric_attenuation * source.intensity,
+                );
+
+                source_dose += prefactors[ig] * material_attenuation * buildup;
+            }
+
+            total_dose += source.intensity * geometric_attenuation * source_dose;
         }
-
-        let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
-        let mut source_dose = 0.0;
-
-        // 2. Loop over energy division
-        for ig in 0..num_groups {
-            let buildup_material_id = select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
-            collector.record_buildup_material(buildup_material_id);
-
-            let total_ot = total_ots[ig];
-            let buildup = if let Some(mat_id) = buildup_material_id {
-                physics.get_buildup(mat_id, ig, total_ot)
-            } else {
-                1.0
-            };
-            let material_attenuation = (-total_ot).exp();
-
-            let uncollided_flux = material_attenuation * intensity_by_group[ig];
-            let uncollided_dose = conversion_factors[ig] * uncollided_flux;
-            let group_total_dose = uncollided_dose * buildup;
-
-            collector.record_energy_group(
-                ig,
-                uncollided_flux * geometric_attenuation * source.intensity,
-                buildup,
-                uncollided_dose * geometric_attenuation * source.intensity,
-                group_total_dose * geometric_attenuation * source.intensity,
-            );
-
-            source_dose += prefactors[ig] * material_attenuation * buildup;
-        }
-
-        total_dose += source.intensity * geometric_attenuation * source_dose;
     }
 
     total_dose
@@ -176,7 +202,6 @@ pub fn calculate_dose_rate_no_collector(
     let num_groups = conversion_factors.len();
     let mut segments_buffer = Vec::with_capacity(32);
     let mut buffer_ts = Vec::with_capacity(64);
-    let mut buffer_ranges = Vec::with_capacity(32);
     let mut grouped_segments: Vec<(MaterialIndex, f32)> = Vec::with_capacity(32);
     let mut total_ots = vec![0.0; num_groups];
 
@@ -185,53 +210,80 @@ pub fn calculate_dose_rate_no_collector(
         prefactors[ig] = conversion_factors[ig] * intensity_by_group[ig];
     }
 
-    for source in sources {
-        let diff = detector_position - source.position;
-        let distance_sq = diff.length_squared();
-        if distance_sq < 1e-10 { continue; }
+    // Process sources in batches to optimize cache efficiency and enable
+    // vectorized intersection tests across multiple rays.
+    let batch_size = 64;
+    let n_prims = world.primitives.len();
+    let mut rays = Vec::with_capacity(batch_size);
+    let mut batch_ranges = vec![(f32::INFINITY, f32::NEG_INFINITY); batch_size * n_prims];
 
-        let ray = Ray { origin: source.position, vector: diff };
-        world.get_ray_segments(&ray, &mut segments_buffer, &mut buffer_ts, &mut buffer_ranges);
+    for source_batch in sources.chunks(batch_size) {
+        rays.clear();
+        for source in source_batch {
+            rays.push(Ray { 
+                origin: source.position, 
+                vector: detector_position - source.position 
+            });
+        }
 
-        let mu_data = physics.get_mu_data();
-        grouped_segments.clear();
-        total_ots.fill(0.0);
-        for &(mat_id, length) in &segments_buffer {
-            if let Some(mat_id) = mat_id {
-                let m_idx = mat_id as MaterialIndex;
-                if let Some(last) = grouped_segments.last_mut() {
-                    if last.0 == m_idx {
-                        last.1 += length;
+        if n_prims > 0 {
+            batch_ranges.resize(rays.len() * n_prims, (f32::INFINITY, f32::NEG_INFINITY));
+            world.primitives.get_ranges_batched(&rays, &mut batch_ranges);
+        }
+
+        for (i, source) in source_batch.iter().enumerate() {
+            let ray = &rays[i];
+            let distance_sq = ray.vector.length_squared();
+            if distance_sq < 1e-10 { continue; }
+
+            if n_prims > 0 {
+                let ranges = &batch_ranges[i * n_prims .. (i + 1) * n_prims];
+                world.get_ray_segments_from_ranges(ray, ranges, &mut segments_buffer, &mut buffer_ts);
+            } else {
+                segments_buffer.clear();
+                segments_buffer.push((None, ray.vector.length()));
+            }
+
+            let mu_data = physics.get_mu_data();
+            grouped_segments.clear();
+            total_ots.fill(0.0);
+            for &(mat_id, length) in &segments_buffer {
+                if let Some(mat_id) = mat_id {
+                    let m_idx = mat_id as MaterialIndex;
+                    if let Some(last) = grouped_segments.last_mut() {
+                        if last.0 == m_idx {
+                            last.1 += length;
+                        } else {
+                            grouped_segments.push((m_idx, length));
+                        }
                     } else {
                         grouped_segments.push((m_idx, length));
                     }
-                } else {
-                    grouped_segments.push((m_idx, length));
-                }
-                
-                let mus = &mu_data[m_idx * num_groups..(m_idx + 1) * num_groups];
-                for ig in 0..num_groups {
-                    total_ots[ig] += mus[ig] * length;
+                    
+                    let mus = &mu_data[m_idx * num_groups..(m_idx + 1) * num_groups];
+                    for ig in 0..num_groups {
+                        total_ots[ig] += mus[ig] * length;
+                    }
                 }
             }
+
+            let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
+            let mut source_dose = 0.0;
+
+            for ig in 0..num_groups {
+                let buildup_material_id = select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
+                let total_ot = total_ots[ig];
+                let buildup = if let Some(mat_id) = buildup_material_id {
+                    physics.get_buildup(mat_id, ig, total_ot)
+                } else {
+                    1.0
+                };
+
+                source_dose += prefactors[ig] * (-total_ot).exp() * buildup;
+            }
+
+            total_dose += source.intensity * geometric_attenuation * source_dose;
         }
-
-        let geometric_attenuation = 1.0 / (4.0 * std::f32::consts::PI * distance_sq);
-        let mut source_dose = 0.0;
-
-        for ig in 0..num_groups {
-            let buildup_material_id = select_buildup_material(&grouped_segments, mu_data, num_groups, ig);
-            let total_ot = total_ots[ig];
-            let buildup = if let Some(mat_id) = buildup_material_id {
-                physics.get_buildup(mat_id, ig, total_ot)
-            } else {
-                1.0
-            };
-
-            source_dose += prefactors[ig] * (-total_ot).exp() * buildup;
-        }
-
-        total_dose += source.intensity * geometric_attenuation * source_dose;
     }
 
     total_dose

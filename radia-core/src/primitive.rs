@@ -139,6 +139,82 @@ impl SphereData {
         }
     }
 
+    /// Batched version of get_ranges to optimize for many rays.
+    /// By inverting the loop (Outer: Primitives, Inner: Rays), primitive data like centers
+    /// and radii stay in the CPU cache while processing multiple rays.
+    /// This also enables SIMD vectorization over rays.
+    pub fn get_ranges_batched(&self, rays: &[Ray], global_indices: &[usize], total_prims: usize, results: &mut [(f32, f32)]) {
+        for (local_idx, &global_idx) in global_indices.iter().enumerate() {
+            let center = self.centers[local_idx];
+            let radius2 = self.radius2s[local_idx];
+
+            let cx = Vec4::splat(center.x);
+            let cy = Vec4::splat(center.y);
+            let cz = Vec4::splat(center.z);
+            let r2 = Vec4::splat(radius2);
+
+            let mut i = 0;
+            // SIMD loop: Vectorize intersection tests for 4 rays against 1 sphere.
+            while i + 4 <= rays.len() {
+                let r0 = &rays[i];
+                let r1 = &rays[i+1];
+                let r2_ray = &rays[i+2];
+                let r3 = &rays[i+3];
+
+                let ox = Vec4::new(r0.origin.x, r1.origin.x, r2_ray.origin.x, r3.origin.x);
+                let oy = Vec4::new(r0.origin.y, r1.origin.y, r2_ray.origin.y, r3.origin.y);
+                let oz = Vec4::new(r0.origin.z, r1.origin.z, r2_ray.origin.z, r3.origin.z);
+
+                let vx = Vec4::new(r0.vector.x, r1.vector.x, r2_ray.vector.x, r3.vector.x);
+                let vy = Vec4::new(r0.vector.y, r1.vector.y, r2_ray.vector.y, r3.vector.y);
+                let vz = Vec4::new(r0.vector.z, r1.vector.z, r2_ray.vector.z, r3.vector.z);
+
+                let a = vx*vx + vy*vy + vz*vz;
+                let inv_a = 1.0 / a;
+                let ocx = ox - cx;
+                let ocy = oy - cy;
+                let ocz = oz - cz;
+
+                let b = ocx*vx + ocy*vy + ocz*vz;
+                let c = ocx*ocx + ocy*ocy + ocz*ocz - r2;
+                let discriminant = b*b - a*c;
+                
+                let mask = discriminant.cmpgt(Vec4::ZERO);
+                let m = mask.bitmask();
+                let sqrt_d = discriminant.abs().sqrt();
+                let t0 = (-b - sqrt_d) * inv_a;
+                let t1 = (-b + sqrt_d) * inv_a;
+
+                let t0_arr = t0.to_array();
+                let t1_arr = t1.to_array();
+
+                for j in 0..4 {
+                    if (m & (1 << j)) != 0 {
+                        results[(i+j) * total_prims + global_idx] = (t0_arr[j], t1_arr[j]);
+                    } else {
+                        results[(i+j) * total_prims + global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                    }
+                }
+                i += 4;
+            }
+
+            for j in i..rays.len() {
+                let ray = &rays[j];
+                let oc = ray.origin - center;
+                let a = ray.vector.length_squared();
+                let b = oc.dot(ray.vector);
+                let c = oc.length_squared() - radius2;
+                let discriminant = b * b - a * c;
+                if discriminant > 0.0 {
+                    let sqrt_d = discriminant.sqrt();
+                    results[j * total_prims + global_idx] = ((-b - sqrt_d) / a, (-b + sqrt_d) / a);
+                } else {
+                    results[j * total_prims + global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                }
+            }
+        }
+    }
+
     #[inline(always)]
     pub fn contains(&self, index: usize, p: &Vec3A) -> bool {
         let center = self.centers[index];
@@ -280,6 +356,28 @@ impl RPPData {
         }
     }
 
+    pub fn get_ranges_batched(&self, rays: &[Ray], global_indices: &[usize], total_prims: usize, results: &mut [(f32, f32)]) {
+        for (local_idx, &global_idx) in global_indices.iter().enumerate() {
+            let min = self.mins[local_idx];
+            let max = self.maxs[local_idx];
+
+            for (ray_idx, ray) in rays.iter().enumerate() {
+                let inv_dir = 1.0 / ray.vector;
+                let t0 = (min - ray.origin) * inv_dir;
+                let t1 = (max - ray.origin) * inv_dir;
+                let tmin_v = t0.min(t1);
+                let tmax_v = t0.max(t1);
+                let tmin = tmin_v.max_element();
+                let tmax = tmax_v.min_element();
+                if tmin <= tmax + EPSILON {
+                    results[ray_idx * total_prims + global_idx] = (tmin, tmax);
+                } else {
+                    results[ray_idx * total_prims + global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                }
+            }
+        }
+    }
+
     #[inline(always)]
     pub fn contains(&self, index: usize, p: &Vec3A) -> bool {
         let min = self.mins[index];
@@ -360,6 +458,71 @@ impl CylinderData {
                 results[global_idx] = (t_min, t_max);
             } else {
                 results[global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+            }
+        }
+    }
+
+    pub fn get_ranges_batched(&self, rays: &[Ray], global_indices: &[usize], total_prims: usize, results: &mut [(f32, f32)]) {
+        for (i, (&center, &direction)) in self.centers.iter().zip(&self.directions).enumerate() {
+            let radius2 = self.radius2s[i];
+            let half_height = self.half_heights[i];
+            let global_idx = global_indices[i];
+
+            if half_height <= EPSILON {
+                for ray_idx in 0..rays.len() {
+                    results[ray_idx * total_prims + global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                }
+                continue;
+            }
+            let axis = direction;
+
+            for (ray_idx, ray) in rays.iter().enumerate() {
+                let v = ray.vector;
+                let w = ray.origin - center;
+
+                let v_cross_axis = v.cross(axis);
+                let w_cross_axis = w.cross(axis);
+
+                let a = v_cross_axis.length_squared();
+                let b = w_cross_axis.dot(v_cross_axis);
+                let c = w_cross_axis.length_squared() - radius2;
+
+                let mut t_min = f32::INFINITY;
+                let mut t_max = f32::NEG_INFINITY;
+
+                if a.abs() > EPSILON {
+                    let discriminant = b * b - a * c;
+                    if discriminant > 0.0 {
+                        let sqrt_d = discriminant.sqrt();
+                        for &t in &[(-b - sqrt_d) / a, (-b + sqrt_d) / a] {
+                            let point = ray.origin + v * t;
+                            let axial = (point - center).dot(axis);
+                            if axial.abs() <= half_height + EPSILON {
+                                if t < t_min { t_min = t; }
+                                if t > t_max { t_max = t; }
+                            }
+                        }
+                    }
+                }
+
+                let axis_dot_dir = v.dot(axis);
+                if axis_dot_dir.abs() > EPSILON {
+                    for &sign in &[1.0f32, -1.0f32] {
+                        let cap_center = center + axis * (sign * half_height);
+                        let t = (cap_center - ray.origin).dot(axis) / axis_dot_dir;
+                        let point = ray.origin + v * t;
+                        if (point - cap_center).length_squared() <= radius2 + EPSILON {
+                            if t < t_min { t_min = t; }
+                            if t > t_max { t_max = t; }
+                        }
+                    }
+                }
+
+                if t_min <= t_max {
+                    results[ray_idx * total_prims + global_idx] = (t_min, t_max);
+                } else {
+                    results[ray_idx * total_prims + global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                }
             }
         }
     }

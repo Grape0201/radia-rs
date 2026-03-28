@@ -136,6 +136,13 @@ impl PrimitiveStorage {
         self.cylinders.get_ranges(ray, &self.cylinder_indices, ranges);
     }
 
+    pub fn get_ranges_batched(&self, rays: &[Ray], results: &mut [(f32, f32)]) {
+        let n_prims = self.len();
+        self.spheres.get_ranges_batched(rays, &self.sphere_indices, n_prims, results);
+        self.rpps.get_ranges_batched(rays, &self.rpp_indices, n_prims, results);
+        self.cylinders.get_ranges_batched(rays, &self.cylinder_indices, n_prims, results);
+    }
+
     pub fn len(&self) -> usize {
         self.tags.len()
     }
@@ -166,78 +173,49 @@ impl World {
         if n_prims <= 32 {
             let mut ranges = [(0.0f32, 0.0f32); 32];
             self.primitives.get_ranges(ray, &mut ranges[..n_prims]);
-            
-            let mut ts = [0.0f32; 66]; // 2*32 + 2
-            ts[0] = 0.0;
-            ts[1] = 1.0;
-            let mut ts_count = 2;
-            for i in 0..n_prims {
-                let (t0, t1) = ranges[i];
-                if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX { ts[ts_count] = t0; ts_count += 1; }
-                if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX { ts[ts_count] = t1; ts_count += 1; }
-            }
-            
-            let ts_slice = &mut ts[..ts_count];
-            ts_slice.sort_unstable_by(|a, b| a.total_cmp(b));
-            
-            // Deduplicate
-            let mut unique_count = 0;
-            if ts_count > 0 {
-                unique_count = 1;
-                for i in 1..ts_count {
-                    if ts_slice[i] - ts_slice[unique_count - 1] >= T_EPSILON {
-                        ts_slice[unique_count] = ts_slice[i];
-                        unique_count += 1;
-                    }
-                }
-            }
-            
-            for i in 0..unique_count.saturating_sub(1) {
-                let t0 = ts_slice[i];
-                let t1 = ts_slice[i+1];
-                let length = (t1 - t0) * ray_length;
-                let t_mid = (t0 + t1) * 0.5;
-                
-                let mut mask = 0u64;
-                let tm = glam::Vec4::splat(t_mid);
-                let mut j = 0;
-                while j + 4 <= n_prims {
-                    let mins = glam::Vec4::new(ranges[j].0, ranges[j+1].0, ranges[j+2].0, ranges[j+3].0);
-                    let maxs = glam::Vec4::new(ranges[j].1, ranges[j+1].1, ranges[j+2].1, ranges[j+3].1);
-                    mask |= ((tm.cmpge(mins) & tm.cmple(maxs)).bitmask() as u64) << j;
-                    j += 4;
-                }
-                for k in j..n_prims {
-                    if t_mid >= ranges[k].0 && t_mid <= ranges[k].1 {
-                        mask |= 1 << k;
-                    }
-                }
-                
-                let mut matid = None;
-                for cell in &self.cells {
-                    if cell.csg.evaluate_bitmask(mask) {
-                        matid = Some(cell.material_id);
-                        break;
-                    }
-                }
-                segments.push((matid, length));
-            }
+            self.get_ray_segments_from_ranges(ray, &ranges[..n_prims], segments, buf_ts);
+            return;
+        }
+
+        buf_ranges.resize(n_prims, (f32::INFINITY, f32::NEG_INFINITY));
+        self.primitives.get_ranges(ray, buf_ranges);
+        self.get_ray_segments_from_ranges(ray, buf_ranges, segments, buf_ts);
+    }
+
+    pub fn get_ray_segments_from_ranges(
+        &self,
+        ray: &Ray,
+        ranges: &[(f32, f32)],
+        segments: &mut Vec<(Option<MaterialIndex>, f32)>,
+        buf_ts: &mut Vec<f32>,
+    ) {
+        segments.clear();
+        let ray_length = ray.vector.length();
+        if ray_length <= EPSILON {
             return;
         }
 
         buf_ts.clear();
-        buf_ranges.resize(n_prims, (f32::INFINITY, f32::NEG_INFINITY));
-        self.primitives.get_ranges(ray, buf_ranges);
-
         buf_ts.push(0.0);
         buf_ts.push(1.0);
-        for &(t0, t1) in buf_ranges.iter() {
+        for &(t0, t1) in ranges.iter() {
             if t0 > SEGMENT_MIN && t0 < SEGMENT_MAX { buf_ts.push(t0); }
             if t1 > SEGMENT_MIN && t1 < SEGMENT_MAX { buf_ts.push(t1); }
         }
 
         buf_ts.sort_unstable_by(|a, b| a.total_cmp(b));
-        buf_ts.dedup_by(|a, b| *b - *a < T_EPSILON);
+        
+        // Deduplicate
+        if !buf_ts.is_empty() {
+            let mut unique_count = 1;
+            for i in 1..buf_ts.len() {
+                if buf_ts[i] - buf_ts[unique_count - 1] >= T_EPSILON {
+                    buf_ts[unique_count] = buf_ts[i];
+                    unique_count += 1;
+                }
+            }
+            buf_ts.truncate(unique_count);
+        }
 
         for i in 0..buf_ts.len().saturating_sub(1) {
             let t0 = buf_ts[i];
@@ -249,11 +227,11 @@ impl World {
             let mut mask = 0u64;
             let tm = glam::Vec4::splat(t_mid);
             let mut j = 0;
-            while j + 4 <= buf_ranges.len() {
-                let r0 = buf_ranges[j];
-                let r1 = buf_ranges[j+1];
-                let r2 = buf_ranges[j+2];
-                let r3 = buf_ranges[j+3];
+            while j + 4 <= ranges.len() {
+                let r0 = ranges[j];
+                let r1 = ranges[j+1];
+                let r2 = ranges[j+2];
+                let r3 = ranges[j+3];
                 
                 let mins = glam::Vec4::new(r0.0, r1.0, r2.0, r3.0);
                 let maxs = glam::Vec4::new(r0.1, r1.1, r2.1, r3.1);
@@ -264,8 +242,8 @@ impl World {
             }
             
             // Remainder
-            for k in j..buf_ranges.len() {
-                let (rt0, rt1) = buf_ranges[k];
+            for k in j..ranges.len() {
+                let (rt0, rt1) = ranges[k];
                 if t_mid >= rt0 && t_mid <= rt1 {
                     mask |= 1 << k;
                 }

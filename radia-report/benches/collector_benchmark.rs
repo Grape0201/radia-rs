@@ -3,7 +3,7 @@ use glam::Vec3A;
 use pprof::criterion::{Output, PProfProfiler};
 use radia_core::buildup::GPBuildupProvider;
 use radia_core::csg::{Cell, FlatCSG, Instruction, PrimitiveStorage, World};
-use radia_core::kernel::{FastCollector, calculate_dose_rate, calculate_dose_rate_no_collector};
+use radia_core::kernel::{FastCollector, calculate_dose_rate};
 use radia_core::mass_attenuation::{DummyProvider, MaterialDef, MaterialRegistry};
 use radia_core::primitive::Primitive;
 use radia_core::source::{PointSource, generate_sphere_source};
@@ -128,20 +128,7 @@ fn benchmark_collector_comparison(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("Dose_Collector_Comparisons");
 
-    group.bench_function("1_bare_f32_calculate", |b| {
-        b.iter(|| {
-            calculate_dose_rate_no_collector(
-                black_box(&physics_table),
-                black_box(&world),
-                black_box(&conversion_factors),
-                black_box(&intensity_by_group),
-                black_box(detector_position),
-                black_box(&sources),
-            )
-        })
-    });
-
-    group.bench_function("2_fast_collector_abstraction", |b| {
+    group.bench_function("1_fast_collector_abstraction", |b| {
         b.iter(|| {
             let mut collector = FastCollector::default();
             calculate_dose_rate(
@@ -155,6 +142,8 @@ fn benchmark_collector_comparison(c: &mut Criterion) {
             )
         })
     });
+
+    // add more collector cases
 
     group.finish();
 }

@@ -1,5 +1,5 @@
 use crate::constants::EPSILON;
-use glam::{Vec3A, Vec4};
+use glam::Vec3A;
 
 #[derive(Debug, Clone, Default)]
 pub struct SphereData {
@@ -16,7 +16,6 @@ impl SphereData {
     /// Batched version of get_ranges to optimize for many rays.
     /// By inverting the loop (Outer: Primitives, Inner: Rays), primitive data like centers
     /// and radii stay in the CPU cache while processing multiple rays.
-    /// This also enables SIMD vectorization over rays.
     pub fn get_ranges_batched(
         &self,
         rays: &[Ray],
@@ -28,69 +27,20 @@ impl SphereData {
             let center = self.centers[local_idx];
             let radius2 = self.radius2s[local_idx];
 
-            let cx = Vec4::splat(center.x);
-            let cy = Vec4::splat(center.y);
-            let cz = Vec4::splat(center.z);
-            let r2 = Vec4::splat(radius2);
-
-            let mut i = 0;
-            // SIMD loop: Vectorize intersection tests for 4 rays against 1 sphere.
-            while i + 4 <= rays.len() {
-                let r0 = &rays[i];
-                let r1 = &rays[i + 1];
-                let r2_ray = &rays[i + 2];
-                let r3 = &rays[i + 3];
-
-                let ox = Vec4::new(r0.origin.x, r1.origin.x, r2_ray.origin.x, r3.origin.x);
-                let oy = Vec4::new(r0.origin.y, r1.origin.y, r2_ray.origin.y, r3.origin.y);
-                let oz = Vec4::new(r0.origin.z, r1.origin.z, r2_ray.origin.z, r3.origin.z);
-
-                let vx = Vec4::new(r0.vector.x, r1.vector.x, r2_ray.vector.x, r3.vector.x);
-                let vy = Vec4::new(r0.vector.y, r1.vector.y, r2_ray.vector.y, r3.vector.y);
-                let vz = Vec4::new(r0.vector.z, r1.vector.z, r2_ray.vector.z, r3.vector.z);
-
-                let a = vx * vx + vy * vy + vz * vz;
-                let inv_a = 1.0 / a;
-                let ocx = ox - cx;
-                let ocy = oy - cy;
-                let ocz = oz - cz;
-
-                let b = ocx * vx + ocy * vy + ocz * vz;
-                let c = ocx * ocx + ocy * ocy + ocz * ocz - r2;
-                let discriminant = b * b - a * c;
-
-                let mask = discriminant.cmpgt(Vec4::ZERO);
-                let m = mask.bitmask();
-                let sqrt_d = discriminant.abs().sqrt();
-                let t0 = (-b - sqrt_d) * inv_a;
-                let t1 = (-b + sqrt_d) * inv_a;
-
-                let t0_arr = t0.to_array();
-                let t1_arr = t1.to_array();
-
-                for j in 0..4 {
-                    if (m & (1 << j)) != 0 {
-                        results[(i + j) * total_prims + global_idx] = (t0_arr[j], t1_arr[j]);
-                    } else {
-                        results[(i + j) * total_prims + global_idx] =
-                            (f32::INFINITY, f32::NEG_INFINITY);
-                    }
-                }
-                i += 4;
-            }
-
-            for j in i..rays.len() {
-                let ray = &rays[j];
+            for (ray_idx, ray) in rays.iter().enumerate() {
                 let oc = ray.origin - center;
                 let a = ray.vector.length_squared();
                 let b = oc.dot(ray.vector);
                 let c = oc.length_squared() - radius2;
                 let discriminant = b * b - a * c;
+
                 if discriminant > 0.0 {
                     let sqrt_d = discriminant.sqrt();
-                    results[j * total_prims + global_idx] = ((-b - sqrt_d) / a, (-b + sqrt_d) / a);
+                    results[ray_idx * total_prims + global_idx] =
+                        ((-b - sqrt_d) / a, (-b + sqrt_d) / a);
                 } else {
-                    results[j * total_prims + global_idx] = (f32::INFINITY, f32::NEG_INFINITY);
+                    results[ray_idx * total_prims + global_idx] =
+                        (f32::INFINITY, f32::NEG_INFINITY);
                 }
             }
         }

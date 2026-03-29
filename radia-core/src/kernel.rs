@@ -25,6 +25,9 @@ pub trait DoseCollector {
         uncollided_dose: f32,
         total_dose: f32,
     );
+    fn merge(&mut self, other: Self)
+    where
+        Self: Sized;
 }
 
 #[derive(Default)]
@@ -41,6 +44,8 @@ impl DoseCollector for FastCollector {
     fn record_buildup_material(&mut self, _: Option<MaterialIndex>) {}
     #[inline(always)]
     fn record_energy_group(&mut self, _: usize, _: f32, _: f32, _: f32, _: f32) {}
+    #[inline(always)]
+    fn merge(&mut self, _: Self) {}
 }
 /// Determine the appropriate buildup material ID for a ray path.
 ///
@@ -232,7 +237,7 @@ pub fn calculate_dose_rate(
     total_dose
 }
 
-pub fn calculate_dose_rate_parallel(
+pub fn calculate_dose_rate_parallel<C: DoseCollector + Send + Default>(
     physics: &crate::physics::MaterialPhysicsTable,
     world: &World,
     conversion_factors: &[f32],
@@ -240,12 +245,13 @@ pub fn calculate_dose_rate_parallel(
     detector_position: Vec3A,
     sources: &[PointSource],
     chunk_size: usize,
+    global_collector: &mut C,
 ) -> f32 {
-    sources
+    let (total_dose, merged_collector) = sources
         .par_chunks(chunk_size)
         .map(|source_chunk| {
-            let mut collector = FastCollector::default();
-            calculate_dose_rate(
+            let mut collector = C::default();
+            let dose = calculate_dose_rate(
                 physics,
                 world,
                 conversion_factors,
@@ -253,9 +259,19 @@ pub fn calculate_dose_rate_parallel(
                 detector_position,
                 source_chunk,
                 &mut collector,
-            )
+            );
+            (dose, collector)
         })
-        .sum()
+        .reduce(
+            || (0.0, C::default()),
+            |(dose_accum, mut coll_accum), (dose, coll)| {
+                coll_accum.merge(coll);
+                (dose_accum + dose, coll_accum)
+            },
+        );
+
+    global_collector.merge(merged_collector);
+    total_dose
 }
 
 #[cfg(test)]

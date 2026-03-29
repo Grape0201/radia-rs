@@ -1,7 +1,7 @@
 use miette::{IntoDiagnostic, Result};
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
 use radia_core::buildup::GPBuildupProvider;
-use radia_core::kernel::calculate_dose_rate_parallel;
+use radia_core::kernel::{calculate_dose_rate_parallel, FastCollector};
 use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
 use radia_core::physics::MaterialPhysicsTable;
 use radia_input::SimulationInput;
@@ -109,6 +109,7 @@ fn main() -> Result<()> {
 
     for det in &detectors {
         let chunk_size = 1000;
+        let mut collector = FastCollector::default();
         let dose_rate = calculate_dose_rate_parallel(
             &physics_table,
             &world,
@@ -117,6 +118,7 @@ fn main() -> Result<()> {
             glam::Vec3A::from(det.position),
             &srcs,
             chunk_size,
+            &mut collector,
         );
         *detector_doses.entry(det.name.clone()).or_insert(0.0) += dose_rate;
     }

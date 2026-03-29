@@ -151,4 +151,9 @@ impl DoseCollector for DetailedCollector {
             res.total_dose_rate_with_buildup += total_dose;
         }
     }
+
+    fn merge(&mut self, mut other: Self) {
+        self.report.results.append(&mut other.report.results);
+        self.report.warnings.append(&mut other.report.warnings);
+    }
 }

@@ -168,6 +168,7 @@ fn benchmark_parallel(c: &mut Criterion) {
     for &size in &chunk_sizes {
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &s| {
             b.iter(|| {
+                let mut collector = FastCollector::default();
                 calculate_dose_rate_parallel(
                     black_box(&physics_table),
                     &world,
@@ -176,6 +177,7 @@ fn benchmark_parallel(c: &mut Criterion) {
                     detector_position,
                     &sources,
                     s,
+                    &mut collector,
                 )
             });
         });

@@ -86,9 +86,12 @@ pub fn calculate_dose_rate(
     let num_groups = conversion_factors.len();
 
     // Thread-local buffers to avoid allocations
+    // A buffer for `csg::World::get_ray_segments_from_ranges`, holds `(material_id, flight_length)`
     let mut segments_buffer = Vec::with_capacity(32);
-    let mut buffer_ts = Vec::with_capacity(64);
+    // A buffer for grouping contiguous segments of the same material from `segments_buffer`
     let mut grouped_segments: Vec<(MaterialIndex, f32)> = Vec::with_capacity(32);
+    // A buffer for `csg::World::get_ray_segments_from_ranges`, holds `t_min` and `t_max`
+    let mut buffer_ts = Vec::with_capacity(64);
     let mut total_ots = vec![0.0; num_groups];
 
     collector.begin_detector(detector_position);
@@ -98,8 +101,31 @@ pub fn calculate_dose_rate(
         prefactors[ig] = conversion_factors[ig] * intensity_by_group[ig];
     }
 
-    // Process sources in batches to optimize cache efficiency and enable
-    // vectorized intersection tests across multiple rays.
+    // =========================================================================
+    // Ray-Primitive Intersection Batching Strategy
+    // =========================================================================
+    // We process point sources in fixed-size batches (e.g., 64 rays) rather than
+    // evaluating all sources at once into a single giant array. This optimization
+    // is targeted at typical volumetric workloads, such as computing dose from
+    // 1,000,000 volumetric sources (a 100x100x100 grid) against 10 CSG primitives.
+    //
+    // 1. L1 Cache Efficiency & Temporal Locality (Preventing Cache Thrashing):
+    //    An intermediate buffer `batch_ranges` stores `(t_min, t_max)` intersections.
+    //    If we evaluated all 1M sources sequentially at once, the `batch_ranges`
+    //    array would consume ~80 MB (1,000,000 rays * 10 primitives * 8 bytes).
+    //    This exceeds L1/L2 caches and forces expensive DRAM spills, destroying
+    //    performance. By chunking into 64-ray batches, `batch_ranges` is restricted
+    //    to 64 * 10 * 8 bytes = 5.1 KB, easily fitting in the CPU's L1 cache. This
+    //    ensures that the results of `get_ranges_batched` (Producer) remain hot
+    //    in cache for `get_ray_segments_from_ranges` (Consumer).
+    //
+    // 2. Loop Inversion & Auto-Vectorization (SIMD):
+    //    Inside `get_ranges_batched`, the loops are inverted to
+    //    `for primitive { for ray ... }`. This allows a single primitive's data
+    //    (e.g., sphere center/radius) to remain in CPU registers while being
+    //    tested against compiling all 64 continuous rays. The structure facilitates
+    //    LLVM auto-vectorization to leverage CPU SIMD hardware instructions.
+    // =========================================================================
     let batch_size = 64;
     let n_prims = world.primitives.len();
     let mut rays = Vec::with_capacity(batch_size);

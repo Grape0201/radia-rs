@@ -17,6 +17,8 @@ impl DetailedCollector {
         physics_data: PhysicsSummary,
         input_echo: serde_json::Value,
         input_file_hash: String,
+        recognized_world: Option<serde_json::Value>,
+        primitive_names: Vec<String>,
     ) -> Self {
         let timestamp =
             if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -37,6 +39,8 @@ impl DetailedCollector {
                 metadata,
                 input_echo,
                 physics_data,
+                recognized_world,
+                primitive_names,
                 results: Vec::new(),
                 warnings: Vec::new(),
             },
@@ -80,6 +84,108 @@ impl DetailedCollector {
             self.report.physics_data.conversion_factors
         );
 
+        if let Some(world) = &self.report.recognized_world {
+            let _ = writeln!(md, "## Recognized World Structure");
+            
+            // Render Primitives
+            if let Some(primitives) = world.get("primitives").and_then(|p| p.as_array()) {
+                let _ = writeln!(md, "### Primitives");
+                let _ = writeln!(md, "| Index | Type | Parameters |");
+                let _ = writeln!(md, "|-------|------|------------|");
+                for (i, p) in primitives.iter().enumerate() {
+                    let p_type = p.get("type").and_then(|t| t.as_str()).unwrap_or("Unknown");
+                    let p_name = if i < self.report.primitive_names.len() {
+                        self.report.primitive_names[i].clone()
+                    } else {
+                        format!("Primitive_{}", i)
+                    };
+                    let mut params = Vec::new();
+                    if let Some(obj) = p.as_object() {
+                        for (k, v) in obj {
+                            if k != "type" {
+                                params.push(format!("{}: {}", k, v));
+                            }
+                        }
+                    }
+                    let _ = writeln!(md, "| {} ({}) | {} | {} |", i, p_name, p_type, params.join(", "));
+                }
+                let _ = writeln!(md);
+            }
+
+            // Render Cells
+            if let Some(cells) = world.get("cells").and_then(|c| c.as_array()) {
+                let _ = writeln!(md, "### Cells");
+                let _ = writeln!(md, "| Index | Material | CSG Instructions (RPN) |");
+                let _ = writeln!(md, "|-------|----------|------------------------|");
+                for (i, c) in cells.iter().enumerate() {
+                    let mat_id = c.get("material_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let mat_name = if mat_id < self.report.physics_data.evaluated_materials.len() {
+                        self.report.physics_data.evaluated_materials[mat_id].name.clone()
+                    } else {
+                        format!("Material_{}", mat_id)
+                    };
+                    
+                    let mut inst_strs = Vec::new();
+                    if let Some(instructions) = c.get("csg").and_then(|csg| csg.get("instructions")).and_then(|ins| ins.as_array()) {
+                        for inst in instructions {
+                            if let Some(s) = inst.as_str() {
+                                inst_strs.push(s.to_string());
+                            } else if let Some(obj) = inst.as_object() {
+                                for (k, v) in obj {
+                                    if k == "PushPrimitive" {
+                                        if let Some(id) = v.as_u64() {
+                                            let id = id as usize;
+                                            let name = if id < self.report.primitive_names.len() {
+                                                self.report.primitive_names[id].clone()
+                                            } else {
+                                                format!("{}", id)
+                                            };
+                                            inst_strs.push(format!("{}({})", k, name));
+                                        } else {
+                                            inst_strs.push(format!("{}({:?})", k, v));
+                                        }
+                                    } else {
+                                        inst_strs.push(format!("{}({})", k, v));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let _ = writeln!(md, "| {} | {} | {} |", i, mat_name, inst_strs.join(" "));
+                }
+                let _ = writeln!(md);
+            }
+        }
+
+        if !self.report.physics_data.evaluated_materials.is_empty() {
+            let _ = writeln!(md, "## Evaluated Material Properties");
+            for mat in &self.report.physics_data.evaluated_materials {
+                let _ = writeln!(md, "### {} (Density: {:.3} g/cm^3)", mat.name, mat.density);
+                let _ = writeln!(md, "**Composition:**");
+                let mut comp_strs: Vec<_> = mat.composition.iter().collect();
+                comp_strs.sort_by_key(|tuple| *tuple.0);
+                let formatted_comps: Vec<String> = comp_strs
+                    .into_iter()
+                    .map(|(z, frac)| format!("Z={} ({:.2}%)", z, frac * 100.0))
+                    .collect();
+                let _ = writeln!(md, "- {}\n", formatted_comps.join(", "));
+
+                let _ = writeln!(
+                    md,
+                    "| Energy (MeV) | $\\mu$ (cm$^{{-1}}$) | Buildup Model |"
+                );
+                let _ = writeln!(md, "|--------------|-------------------|---------------|");
+                for (ig, &energy) in self.report.physics_data.energy_groups.iter().enumerate() {
+                    let _ = writeln!(
+                        md,
+                        "| {:.3} | {:.4e} | {} |",
+                        energy, mat.mu_by_group[ig], mat.buildup_by_group[ig]
+                    );
+                }
+                let _ = writeln!(md);
+            }
+        }
+
         if !self.report.warnings.is_empty() {
             let _ = writeln!(md, "## Warnings");
             for w in &self.report.warnings {
@@ -93,15 +199,30 @@ impl DetailedCollector {
             let _ = writeln!(md, "No results collected.");
         } else {
             for (i, res) in self.report.results.iter().enumerate() {
-                let _ = writeln!(
-                    md,
-                    "### Detector {} at `[{:.3}, {:.3}, {:.3}]`",
-                    i + 1,
-                    res.position[0],
-                    res.position[1],
-                    res.position[2]
-                );
-                let _ = writeln!(md, "- **Buildup Material:** {}", res.buildup_material_name);
+                let _ = writeln!(md, "### Detector {} at `[{:.3}, {:.3}, {:.3}]`", i + 1, res.position[0], res.position[1], res.position[2]);
+                
+                let mut buildup_parts = Vec::new();
+                let mut total_freq = 0;
+                for &count in res.buildup_material_frequencies.values() {
+                    total_freq += count;
+                }
+                
+                let mut sorted_freqs: Vec<_> = res.buildup_material_frequencies.iter().collect();
+                sorted_freqs.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+                
+                for (&mid, count) in sorted_freqs {
+                    let freq = (*count as f32 / total_freq as f32) * 100.0;
+                    let m_name = match mid {
+                        Some(id) if id < self.report.physics_data.evaluated_materials.len() => {
+                            self.report.physics_data.evaluated_materials[id].name.clone()
+                        }
+                        Some(id) => format!("Material_{}", id),
+                        None => "Vacuum".to_string(),
+                    };
+                    buildup_parts.push(format!("{} ({:.1}%)", m_name, freq));
+                }
+
+                let _ = writeln!(md, "- **Buildup Material:** {}", buildup_parts.join(", "));
                 let _ = writeln!(
                     md,
                     "- **Total Dose Rate (Uncollided):** {:.6e}",
@@ -114,39 +235,89 @@ impl DetailedCollector {
                 );
 
                 if !res.energy_group_details.is_empty() {
-                    let _ = writeln!(md, "#### Energy Group Details");
+                    let _ = writeln!(md, "#### Energy Group Details (Aggregated)");
                     let _ = writeln!(
                         md,
-                        "| Group | Energy (MeV) | Uncollided Flux | Buildup Factor | Dose Rate (Unc.) | Dose Rate (Total) |"
+                        "| Group | Energy (MeV) | Segments | Uncollided Flux (Avg/Min/Max) | Buildup Factor (Avg/Min/Max) | Dose Rate (Unc.) (Avg/Min/Max) | Dose Rate (Total) (Avg/Min/Max) |"
                     );
                     let _ = writeln!(
                         md,
-                        "|-------|--------------|-----------------|----------------|------------------|-------------------|"
+                        "|-------|--------------|----------|-------------------------------|------------------------------|--------------------------------|---------------------------------|"
                     );
+
                     for eg in &res.energy_group_details {
+                        let count = eg.count as f32;
                         let _ = writeln!(
                             md,
-                            "| {} | {:.3} | {:.6e} | {:.6e} | {:.6e} | {:.6e} |",
+                            "| {} | {:.3} | {} | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} |",
                             eg.group_index,
                             eg.energy_mev,
-                            eg.uncollided_flux,
-                            eg.buildup_factor,
-                            eg.uncollided_dose_rate,
-                            eg.dose_rate_with_buildup
+                            eg.count,
+                            eg.uncollided_flux_sum / count,
+                            eg.uncollided_flux_min,
+                            eg.uncollided_flux_max,
+                            eg.buildup_factor_sum / count,
+                            eg.buildup_factor_min,
+                            eg.buildup_factor_max,
+                            eg.uncollided_dose_rate_sum / count,
+                            eg.uncollided_dose_rate_min,
+                            eg.uncollided_dose_rate_max,
+                            eg.dose_rate_with_buildup_sum / count,
+                            eg.dose_rate_with_buildup_min,
+                            eg.dose_rate_with_buildup_max
                         );
                     }
                     let _ = writeln!(md);
                 }
 
                 if !res.ray_path_summary.is_empty() {
-                    let _ = writeln!(md, "#### Ray Path Summary");
-                    let _ = writeln!(md, "| Material | Physical Thickness | Optical Thickness |");
-                    let _ = writeln!(md, "|----------|--------------------|-------------------|");
+                    let mut total_phys = 0.0;
                     for seg in &res.ray_path_summary {
+                        total_phys += seg.physical_thickness_sum;
+                    }
+
+                    let _ = writeln!(md, "#### Ray Path Summary (Aggregated)");
+                    let _ = writeln!(
+                        md,
+                        "| Material | Proportion (%) | Phys. Thickness (Avg/Min/Max) | Opt. Thickness (Avg/Min/Max) |"
+                    );
+                    let _ = writeln!(
+                        md,
+                        "|----------|----------------|-------------------------------|------------------------------|"
+                    );
+
+                    for seg in &res.ray_path_summary {
+                        let count = seg.segments as f32;
+                        let proportion = if total_phys > 0.0 {
+                            (seg.physical_thickness_sum / total_phys) * 100.0
+                        } else {
+                            0.0
+                        };
+
+                        let avg_phys = seg.physical_thickness_sum / count;
+                        let avg_opt = seg.optical_thickness_sum / count;
+
+                        let display_name = match seg.material_id {
+                            Some(id) if id < self.report.physics_data.evaluated_materials.len() => {
+                                self.report.physics_data.evaluated_materials[id]
+                                    .name
+                                    .clone()
+                            }
+                            Some(_) => seg.material_name.clone(),
+                            None => "Vacuum".to_string(),
+                        };
+
                         let _ = writeln!(
                             md,
-                            "| {} | {:.6e} | {:.6e} |",
-                            seg.material_name, seg.physical_thickness, seg.optical_thickness
+                            "| {} | {:.2}% | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} |",
+                            display_name,
+                            proportion,
+                            avg_phys,
+                            seg.physical_thickness_min,
+                            seg.physical_thickness_max,
+                            avg_opt,
+                            seg.optical_thickness_min,
+                            seg.optical_thickness_max
                         );
                     }
                     let _ = writeln!(md);
@@ -164,7 +335,7 @@ impl DoseCollector for DetailedCollector {
             position: position.into(),
             total_dose_rate_uncollided: 0.0,
             total_dose_rate_with_buildup: 0.0,
-            buildup_material_name: String::new(),
+            buildup_material_frequencies: std::collections::HashMap::new(),
             energy_group_details: Vec::new(),
             ray_path_summary: Vec::new(),
         });
@@ -179,20 +350,41 @@ impl DoseCollector for DetailedCollector {
         optical_thickness: f32,
     ) {
         if let Some(res) = self.report.results.last_mut() {
-            // To avoid duplicating per energy group, we just clear and keep the last energy group's segments for now.
-            // A more robust implementation might map this by energy group.
-            res.ray_path_summary.push(PathSegmentSummary {
-                material_id: material_id.unwrap_or(MaterialIndex::MAX),
-                material_name: format!("Material_{}", material_id.unwrap_or(MaterialIndex::MAX)),
-                physical_thickness,
-                optical_thickness,
-            });
+            if let Some(seg) = res
+                .ray_path_summary
+                .iter_mut()
+                .find(|s| s.material_id == material_id)
+            {
+                seg.segments += 1;
+                seg.physical_thickness_sum += physical_thickness;
+                seg.physical_thickness_min = seg.physical_thickness_min.min(physical_thickness);
+                seg.physical_thickness_max = seg.physical_thickness_max.max(physical_thickness);
+                seg.optical_thickness_sum += optical_thickness;
+                seg.optical_thickness_min = seg.optical_thickness_min.min(optical_thickness);
+                seg.optical_thickness_max = seg.optical_thickness_max.max(optical_thickness);
+            } else {
+                let material_name = material_id
+                    .map(|id| format!("Material_{}", id))
+                    .unwrap_or_else(|| "Vacuum".to_string());
+
+                res.ray_path_summary.push(PathSegmentSummary {
+                    material_id,
+                    material_name,
+                    segments: 1,
+                    physical_thickness_sum: physical_thickness,
+                    physical_thickness_min: physical_thickness,
+                    physical_thickness_max: physical_thickness,
+                    optical_thickness_sum: optical_thickness,
+                    optical_thickness_min: optical_thickness,
+                    optical_thickness_max: optical_thickness,
+                });
+            }
         }
     }
 
     fn record_buildup_material(&mut self, material_id: Option<usize>) {
         if let Some(res) = self.report.results.last_mut() {
-            res.buildup_material_name = format!("Material_{}", material_id.unwrap_or(usize::MAX));
+            *res.buildup_material_frequencies.entry(material_id).or_insert(0) += 1;
         }
     }
 
@@ -205,21 +397,125 @@ impl DoseCollector for DetailedCollector {
         total_dose: f32,
     ) {
         if let Some(res) = self.report.results.last_mut() {
-            res.energy_group_details.push(EnergyGroupResult {
-                group_index,
-                energy_mev: 0.0, // To be mapped from external data context
-                uncollided_flux,
-                buildup_factor: buildup,
-                uncollided_dose_rate: uncollided_dose,
-                dose_rate_with_buildup: total_dose,
-            });
+            if let Some(eg) = res
+                .energy_group_details
+                .iter_mut()
+                .find(|e| e.group_index == group_index)
+            {
+                eg.count += 1;
+                eg.uncollided_flux_sum += uncollided_flux;
+                eg.uncollided_flux_min = eg.uncollided_flux_min.min(uncollided_flux);
+                eg.uncollided_flux_max = eg.uncollided_flux_max.max(uncollided_flux);
+                eg.buildup_factor_sum += buildup;
+                eg.buildup_factor_min = eg.buildup_factor_min.min(buildup);
+                eg.buildup_factor_max = eg.buildup_factor_max.max(buildup);
+                eg.uncollided_dose_rate_sum += uncollided_dose;
+                eg.uncollided_dose_rate_min = eg.uncollided_dose_rate_min.min(uncollided_dose);
+                eg.uncollided_dose_rate_max = eg.uncollided_dose_rate_max.max(uncollided_dose);
+                eg.dose_rate_with_buildup_sum += total_dose;
+                eg.dose_rate_with_buildup_min = eg.dose_rate_with_buildup_min.min(total_dose);
+                eg.dose_rate_with_buildup_max = eg.dose_rate_with_buildup_max.max(total_dose);
+            } else {
+                res.energy_group_details.push(EnergyGroupResult {
+                    group_index,
+                    energy_mev: 0.0,
+                    count: 1,
+                    uncollided_flux_sum: uncollided_flux,
+                    uncollided_flux_min: uncollided_flux,
+                    uncollided_flux_max: uncollided_flux,
+                    buildup_factor_sum: buildup,
+                    buildup_factor_min: buildup,
+                    buildup_factor_max: buildup,
+                    uncollided_dose_rate_sum: uncollided_dose,
+                    uncollided_dose_rate_min: uncollided_dose,
+                    uncollided_dose_rate_max: uncollided_dose,
+                    dose_rate_with_buildup_sum: total_dose,
+                    dose_rate_with_buildup_min: total_dose,
+                    dose_rate_with_buildup_max: total_dose,
+                });
+            }
             res.total_dose_rate_uncollided += uncollided_dose;
             res.total_dose_rate_with_buildup += total_dose;
         }
     }
 
     fn merge(&mut self, mut other: Self) {
-        self.report.results.append(&mut other.report.results);
+        for other_res in other.report.results {
+            if let Some(res) = self.report.results.iter_mut().find(|r| {
+                (r.position[0] - other_res.position[0]).abs() < 1e-4
+                    && (r.position[1] - other_res.position[1]).abs() < 1e-4
+                    && (r.position[2] - other_res.position[2]).abs() < 1e-4
+            }) {
+                res.total_dose_rate_uncollided += other_res.total_dose_rate_uncollided;
+                res.total_dose_rate_with_buildup += other_res.total_dose_rate_with_buildup;
+                for (name, count) in other_res.buildup_material_frequencies {
+                    *res.buildup_material_frequencies.entry(name).or_insert(0) += count;
+                }
+                for other_eg in other_res.energy_group_details {
+                    if let Some(eg) = res
+                        .energy_group_details
+                        .iter_mut()
+                        .find(|e| e.group_index == other_eg.group_index)
+                    {
+                        eg.count += other_eg.count;
+                        eg.uncollided_flux_sum += other_eg.uncollided_flux_sum;
+                        eg.uncollided_flux_min =
+                            eg.uncollided_flux_min.min(other_eg.uncollided_flux_min);
+                        eg.uncollided_flux_max =
+                            eg.uncollided_flux_max.max(other_eg.uncollided_flux_max);
+                        eg.buildup_factor_sum += other_eg.buildup_factor_sum;
+                        eg.buildup_factor_min =
+                            eg.buildup_factor_min.min(other_eg.buildup_factor_min);
+                        eg.buildup_factor_max =
+                            eg.buildup_factor_max.max(other_eg.buildup_factor_max);
+                        eg.uncollided_dose_rate_sum += other_eg.uncollided_dose_rate_sum;
+                        eg.uncollided_dose_rate_min = eg
+                            .uncollided_dose_rate_min
+                            .min(other_eg.uncollided_dose_rate_min);
+                        eg.uncollided_dose_rate_max = eg
+                            .uncollided_dose_rate_max
+                            .max(other_eg.uncollided_dose_rate_max);
+                        eg.dose_rate_with_buildup_sum += other_eg.dose_rate_with_buildup_sum;
+                        eg.dose_rate_with_buildup_min = eg
+                            .dose_rate_with_buildup_min
+                            .min(other_eg.dose_rate_with_buildup_min);
+                        eg.dose_rate_with_buildup_max = eg
+                            .dose_rate_with_buildup_max
+                            .max(other_eg.dose_rate_with_buildup_max);
+                    } else {
+                        res.energy_group_details.push(other_eg);
+                    }
+                }
+
+                for other_seg in other_res.ray_path_summary {
+                    if let Some(seg) = res
+                        .ray_path_summary
+                        .iter_mut()
+                        .find(|s| s.material_id == other_seg.material_id)
+                    {
+                        seg.segments += other_seg.segments;
+                        seg.physical_thickness_sum += other_seg.physical_thickness_sum;
+                        seg.physical_thickness_min = seg
+                            .physical_thickness_min
+                            .min(other_seg.physical_thickness_min);
+                        seg.physical_thickness_max = seg
+                            .physical_thickness_max
+                            .max(other_seg.physical_thickness_max);
+                        seg.optical_thickness_sum += other_seg.optical_thickness_sum;
+                        seg.optical_thickness_min = seg
+                            .optical_thickness_min
+                            .min(other_seg.optical_thickness_min);
+                        seg.optical_thickness_max = seg
+                            .optical_thickness_max
+                            .max(other_seg.optical_thickness_max);
+                    } else {
+                        res.ray_path_summary.push(other_seg);
+                    }
+                }
+            } else {
+                self.report.results.push(other_res);
+            }
+        }
         self.report.warnings.append(&mut other.report.warnings);
     }
 }

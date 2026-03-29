@@ -105,6 +105,17 @@ impl MaterialPhysicsTable {
         &self.mu_data
     }
 
+    /// Access the buildup model directly for a specific material and energy group.
+    pub fn get_buildup_model(
+        &self,
+        material_index: MaterialIndex,
+        group_index: GroupIndex,
+    ) -> &BuildupModel {
+        debug_assert!(material_index < self.num_materials);
+        debug_assert!(group_index < self.num_groups);
+        &self.buildup_models[material_index * self.num_groups + group_index]
+    }
+
     #[cfg(test)]
     pub(crate) fn generate_for_test(
         mu_data: Vec<f32>,

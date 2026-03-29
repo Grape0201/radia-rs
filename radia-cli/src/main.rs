@@ -89,6 +89,8 @@ fn main() -> Result<()> {
         .map(|(i, name)| (name.clone(), i as MaterialIndex))
         .collect();
 
+    let primitive_names: Vec<String> = world.primitives.iter().map(|p| p.name().to_string()).collect();
+
     info!("Building world...");
     let world = world.build(&material_map).into_diagnostic()?;
 
@@ -156,10 +158,33 @@ fn main() -> Result<()> {
             }
         }
         CollectorSub::Detailed => {
+            let mut evaluated_materials = Vec::new();
+            for (i, name) in used_materials.iter().enumerate() {
+                if let Some(mat_def) = registry.get_material(name) {
+                    let mut mu_by_group = Vec::new();
+                    let mut buildup_by_group = Vec::new();
+                    for ig in 0..energy_groups.len() {
+                        let mu = physics_table.get_mu_data()[i * energy_groups.len() + ig];
+                        let buildup = physics_table.get_buildup_model(i, ig).to_string();
+                        mu_by_group.push(mu);
+                        buildup_by_group.push(buildup);
+                    }
+                    evaluated_materials.push(radia_report::EvaluatedMaterial {
+                        name: name.clone(),
+                        density: mat_def.density(),
+                        composition: mat_def.composition().clone(),
+                        mu_by_group,
+                        buildup_by_group,
+                    });
+                }
+            }
+
             let physics_summary = PhysicsSummary {
                 cross_section_library: "NIST XCOM (JSON)".to_string(),
                 buildup_library: "Geometric Progression (GP)".to_string(),
                 conversion_factors: "Interpolated".to_string(),
+                energy_groups: energy_groups.clone(),
+                evaluated_materials,
             };
 
             // Attempt to read the original file to echo its contents, otherwise default to Null
@@ -168,10 +193,17 @@ fn main() -> Result<()> {
                 .map(serde_json::Value::String)
                 .unwrap_or(serde_json::Value::Null);
 
+            let recognized_world = serde_json::json!({
+                "primitives": world.primitives.get_primitives(),
+                "cells": world.cells,
+            });
+
             let mut global_collector = DetailedCollector::new(
                 physics_summary,
                 input_echo,
                 args.input.to_string_lossy().to_string(),
+                Some(recognized_world),
+                primitive_names,
             );
 
             for det in &detectors {

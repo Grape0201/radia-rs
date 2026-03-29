@@ -48,12 +48,42 @@ pub enum BuildupModel {
         xk: f32,
     },
 
-    /// Table lookup with interpolation.
     Table {
         /// must be sorted
         optical_thicknesses: Vec<f32>,
         buildup_factors: Vec<f32>,
     },
+}
+
+impl std::fmt::Display for BuildupModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildupModel::Constant(val) => write!(f, "Constant({:.2})", val),
+            BuildupModel::Taylor { a, alpha1, alpha2 } => {
+                write!(
+                    f,
+                    "Taylor(A={:.3e}, a1={:.3e}, a2={:.3e})",
+                    a, alpha1, alpha2
+                )
+            }
+            BuildupModel::Berger { c, d } => {
+                write!(f, "Berger(C={:.3e}, D={:.3e})", c, d)
+            }
+            BuildupModel::GeometricProgression { a, b, c, d, xk } => {
+                write!(
+                    f,
+                    "GP(a={:.3e}, b={:.3e}, c={:.3e}, d={:.3e}, xk={:.3e})",
+                    a, b, c, d, xk
+                )
+            }
+            BuildupModel::Table {
+                optical_thicknesses,
+                ..
+            } => {
+                write!(f, "Table({} pts)", optical_thicknesses.len())
+            }
+        }
+    }
 }
 
 impl BuildupModel {

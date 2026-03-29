@@ -6,7 +6,7 @@ pub const SEGMENT_MIN: f32 = EPSILON;
 pub const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 
 /// Flatten `CSGNode` into a list of instructions (Reverse Polish Notation)
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
 pub enum Instruction {
     Union,
     Intersection,
@@ -15,6 +15,7 @@ pub enum Instruction {
     PushPrimitive(usize),
 }
 
+#[derive(serde::Serialize)]
 pub struct FlatCSG {
     pub instructions: Vec<Instruction>,
 }
@@ -88,12 +89,13 @@ impl FlatCSG {
     }
 }
 
+#[derive(serde::Serialize)]
 pub struct Cell {
     pub csg: FlatCSG,
     pub material_id: MaterialIndex,
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, serde::Serialize)]
 pub struct PrimitiveStorage {
     spheres: SphereData,
     rpps: RPPData,
@@ -152,8 +154,31 @@ impl PrimitiveStorage {
     pub fn len(&self) -> usize {
         self.tags.len()
     }
+
+    pub fn get_primitives(&self) -> Vec<Primitive> {
+        self.tags
+            .iter()
+            .map(|&tag| match tag {
+                PrimitiveTag::Sphere(i) => Primitive::Sphere {
+                    center: self.spheres.centers[i],
+                    radius2: self.spheres.radius2s[i],
+                },
+                PrimitiveTag::RPP(i) => Primitive::RectangularParallelPiped {
+                    min: self.rpps.mins[i],
+                    max: self.rpps.maxs[i],
+                },
+                PrimitiveTag::Cylinder(i) => Primitive::FiniteCylinder {
+                    center: self.cylinders.centers[i],
+                    direction: self.cylinders.directions[i],
+                    radius2: self.cylinders.radius2s[i],
+                    half_height: self.cylinders.half_heights[i],
+                },
+            })
+            .collect()
+    }
 }
 
+#[derive(serde::Serialize)]
 pub struct World {
     pub primitives: PrimitiveStorage,
     pub cells: Vec<Cell>,

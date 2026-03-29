@@ -6,3 +6,5 @@ pub mod mass_attenuation;
 pub mod physics;
 pub mod primitive;
 pub mod source;
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

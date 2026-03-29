@@ -1,7 +1,9 @@
-use glam::Vec3A;
-use radia_core::kernel::DoseCollector;
-use radia_core::mass_attenuation::MaterialIndex;
 use serde::Serialize;
+
+pub mod collector;
+pub use collector::DetailedCollector;
+
+use radia_core::mass_attenuation::MaterialIndex;
 
 /// Metadata for a simulation run.
 #[derive(Debug, Clone, Serialize, Default)]
@@ -67,93 +69,4 @@ pub struct SimulationReport {
     pub results: Vec<DetectorResult>,
 
     pub warnings: Vec<String>,
-}
-
-#[derive(Default)]
-pub struct DetailedCollector {
-    pub report: SimulationReport,
-}
-
-impl DetailedCollector {
-    pub fn new(
-        metadata: RunMetadata,
-        physics_data: PhysicsSummary,
-        input_echo: serde_json::Value,
-    ) -> Self {
-        Self {
-            report: SimulationReport {
-                metadata,
-                input_echo,
-                physics_data,
-                results: Vec::new(),
-                warnings: Vec::new(),
-            },
-        }
-    }
-}
-
-impl DoseCollector for DetailedCollector {
-    fn begin_detector(&mut self, position: Vec3A) {
-        self.report.results.push(DetectorResult {
-            position: position.into(),
-            total_dose_rate_uncollided: 0.0,
-            total_dose_rate_with_buildup: 0.0,
-            buildup_material_name: String::new(),
-            energy_group_details: Vec::new(),
-            ray_path_summary: Vec::new(),
-        });
-    }
-
-    fn begin_source(&mut self, _position: Vec3A, _intensity: f32) {}
-
-    fn record_ray_segment(
-        &mut self,
-        material_id: Option<MaterialIndex>,
-        physical_thickness: f32,
-        optical_thickness: f32,
-    ) {
-        if let Some(res) = self.report.results.last_mut() {
-            // To avoid duplicating per energy group, we just clear and keep the last energy group's segments for now.
-            // A more robust implementation might map this by energy group.
-            res.ray_path_summary.push(PathSegmentSummary {
-                material_id: material_id.unwrap_or(MaterialIndex::MAX),
-                material_name: format!("Material_{}", material_id.unwrap_or(MaterialIndex::MAX)),
-                physical_thickness,
-                optical_thickness,
-            });
-        }
-    }
-
-    fn record_buildup_material(&mut self, material_id: Option<usize>) {
-        if let Some(res) = self.report.results.last_mut() {
-            res.buildup_material_name = format!("Material_{}", material_id.unwrap_or(usize::MAX));
-        }
-    }
-
-    fn record_energy_group(
-        &mut self,
-        group_index: usize,
-        uncollided_flux: f32,
-        buildup: f32,
-        uncollided_dose: f32,
-        total_dose: f32,
-    ) {
-        if let Some(res) = self.report.results.last_mut() {
-            res.energy_group_details.push(EnergyGroupResult {
-                group_index,
-                energy_mev: 0.0, // To be mapped from external data context
-                uncollided_flux,
-                buildup_factor: buildup,
-                uncollided_dose_rate: uncollided_dose,
-                dose_rate_with_buildup: total_dose,
-            });
-            res.total_dose_rate_uncollided += uncollided_dose;
-            res.total_dose_rate_with_buildup += total_dose;
-        }
-    }
-
-    fn merge(&mut self, mut other: Self) {
-        self.report.results.append(&mut other.report.results);
-        self.report.warnings.append(&mut other.report.warnings);
-    }
 }

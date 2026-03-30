@@ -994,7 +994,6 @@ dependencies = [
  "glam",
  "pprof",
  "rayon",
- "serde",
  "thiserror",
  "tracing",
 ]
@@ -1025,6 +1024,7 @@ dependencies = [
  "glam",
  "pprof",
  "radia-core",
+ "radia-input",
  "serde",
  "serde_json",
 ]

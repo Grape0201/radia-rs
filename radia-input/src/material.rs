@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::atomic_number::{deserialize_composition, validate_composition};
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Clone)]
 pub struct UserDefinedMaterialInput {
     #[garde(range(min = 0.0))]
     pub density: f32,

@@ -1,10 +1,13 @@
 use glam::Vec3A;
 use radia_core::kernel::DoseCollector;
-use radia_core::mass_attenuation::MaterialIndex;
+use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
+use radia_core::physics::MaterialPhysicsTable;
+use radia_core::csg::{World, Instruction};
+use radia_input::SimulationInput;
 
 use crate::{
-    DetectorResult, EnergyGroupResult, PathSegmentSummary, PhysicsSummary, RunMetadata,
-    SimulationReport,
+    DetectorResult, EnergyGroupResult, EvaluatedMaterial, PathSegmentSummary, PhysicsSummary,
+    RunMetadata, SimulationReport,
 };
 
 #[derive(Default)]
@@ -14,11 +17,11 @@ pub struct DetailedCollector {
 
 impl DetailedCollector {
     pub fn new(
-        physics_data: PhysicsSummary,
-        input_echo: serde_json::Value,
-        input_file_hash: String,
-        recognized_world: Option<serde_json::Value>,
-        primitive_names: Vec<String>,
+        sim_input: &SimulationInput,
+        physics_table: &MaterialPhysicsTable,
+        registry: &MaterialRegistry,
+        world: &World,
+        input_file_path: String,
     ) -> Self {
         let timestamp =
             if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -31,15 +34,112 @@ impl DetailedCollector {
             radia_rs_version: radia_core::VERSION.to_string(),
             timestamp,
             os: std::env::consts::OS.to_string(),
-            input_file_hash,
+            input_file_hash: input_file_path,
         };
+
+        // Extract input echo
+        let input_echo = std::fs::read_to_string(&metadata.input_file_hash)
+            .ok()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null);
+
+        // Build Physics Summary
+        let mut used_materials: Vec<String> = sim_input.world.cells.iter()
+            .map(|c| c.material_name.clone())
+            .collect();
+        used_materials.sort();
+        used_materials.dedup();
+
+        let energy_groups = &sim_input.source.energy_groups;
+        let mut evaluated_materials = Vec::new();
+        for (i, name) in used_materials.iter().enumerate() {
+            if let Some(mat_def) = registry.get_material(name) {
+                let mut mu_by_group = Vec::new();
+                let mut buildup_by_group = Vec::new();
+                for ig in 0..energy_groups.len() {
+                    let mu = physics_table.get_mu_data()[i * energy_groups.len() + ig];
+                    let buildup = physics_table.get_buildup_model(i, ig).to_string();
+                    mu_by_group.push(mu);
+                    buildup_by_group.push(buildup);
+                }
+                evaluated_materials.push(EvaluatedMaterial {
+                    name: name.clone(),
+                    density: mat_def.density(),
+                    composition: mat_def.composition().clone(),
+                    mu_by_group,
+                    buildup_by_group,
+                });
+            }
+        }
+
+        let physics_data = PhysicsSummary {
+            cross_section_library: "NIST XCOM (JSON)".to_string(),
+            buildup_library: "Geometric Progression (GP)".to_string(),
+            conversion_factors: "Interpolated".to_string(),
+            energy_groups: energy_groups.clone(),
+            evaluated_materials,
+        };
+
+        // Build Recognized World JSON manually
+        let mut cell_json = Vec::new();
+        for cell in &world.cells {
+            let mut insts = Vec::new();
+            for inst in &cell.csg.instructions {
+                match inst {
+                    Instruction::Union => insts.push(serde_json::json!("Union")),
+                    Instruction::Intersection => insts.push(serde_json::json!("Intersection")),
+                    Instruction::Difference => insts.push(serde_json::json!("Difference")),
+                    Instruction::Complement => insts.push(serde_json::json!("Complement")),
+                    Instruction::PushPrimitive(id) => insts.push(serde_json::json!({"PushPrimitive": id})),
+                }
+            }
+            cell_json.push(serde_json::json!({
+                "material_id": cell.material_id,
+                "csg": { "instructions": insts }
+            }));
+        }
+
+        let prim_json: Vec<_> = world.primitives.get_primitives().iter().map(|p| {
+            match p {
+                radia_core::primitive::Primitive::Sphere { center, radius2 } => {
+                    serde_json::json!({
+                        "type": "Sphere",
+                        "center": [center.x, center.y, center.z],
+                        "radius2": radius2
+                    })
+                }
+                radia_core::primitive::Primitive::RectangularParallelPiped { min, max } => {
+                    serde_json::json!({
+                        "type": "RectangularParallelPiped",
+                        "min": [min.x, min.y, min.z],
+                        "max": [max.x, max.y, max.z]
+                    })
+                }
+                radia_core::primitive::Primitive::FiniteCylinder { center, direction, radius2, half_height } => {
+                    serde_json::json!({
+                        "type": "FiniteCylinder",
+                        "center": [center.x, center.y, center.z],
+                        "direction": [direction.x, direction.y, direction.z],
+                        "radius2": radius2,
+                        "half_height": half_height
+                    })
+                }
+            }
+        }).collect();
+
+        let recognized_world = serde_json::json!({
+            "primitives": prim_json,
+            "cells": cell_json
+        });
+
+        let primitive_names: Vec<String> = sim_input.world.primitives.iter().map(|p| p.name().to_string()).collect();
 
         Self {
             report: SimulationReport {
                 metadata,
                 input_echo,
                 physics_data,
-                recognized_world,
+                recognized_world: Some(recognized_world),
                 primitive_names,
                 results: Vec::new(),
                 warnings: Vec::new(),

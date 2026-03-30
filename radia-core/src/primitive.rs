@@ -1,7 +1,7 @@
 use crate::constants::EPSILON;
 use glam::Vec3A;
 
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct SphereData {
     pub centers: Vec<Vec3A>,
     pub radius2s: Vec<f32>,
@@ -47,7 +47,7 @@ impl SphereData {
     }
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct RPPData {
     pub mins: Vec<Vec3A>,
     pub maxs: Vec<Vec3A>,
@@ -89,7 +89,7 @@ impl RPPData {
     }
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct CylinderData {
     pub centers: Vec<Vec3A>,
     pub directions: Vec<Vec3A>,
@@ -187,7 +187,7 @@ impl CylinderData {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(Debug, Clone, Copy)]
 pub enum PrimitiveTag {
     Sphere(usize),
     RPP(usize),
@@ -195,8 +195,7 @@ pub enum PrimitiveTag {
 }
 
 /// Only convex primitives are supported.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "type")]
+#[derive(Debug, Clone)]
 pub enum Primitive {
     Sphere {
         center: Vec3A,

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::InputError;
 use crate::common::{MinMaxBounds, is_vector_longer_than_epsilon};
 
-#[derive(Serialize, Deserialize, Debug, Validate, Default)]
+#[derive(Serialize, Deserialize, Debug, Validate, Default, Clone)]
 pub struct WorldInput {
     #[garde(dive)]
     #[serde(default)]
@@ -20,7 +20,7 @@ pub struct WorldInput {
     pub cells: Vec<CellInput>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Clone)]
 #[serde(tag = "type")]
 pub enum PrimitiveInput {
     #[serde(alias = "SPH")]
@@ -63,7 +63,7 @@ impl PrimitiveInput {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Clone)]
 pub struct CellInput {
     #[garde(skip)]
     pub material_name: String,

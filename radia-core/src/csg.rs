@@ -6,7 +6,7 @@ pub const SEGMENT_MIN: f32 = EPSILON;
 pub const SEGMENT_MAX: f32 = 1.0 - EPSILON;
 
 /// Flatten `CSGNode` into a list of instructions (Reverse Polish Notation)
-#[derive(PartialEq, Debug, Clone, Copy, serde::Serialize)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Instruction {
     Union,
     Intersection,
@@ -15,7 +15,6 @@ pub enum Instruction {
     PushPrimitive(usize),
 }
 
-#[derive(serde::Serialize)]
 pub struct FlatCSG {
     pub instructions: Vec<Instruction>,
 }
@@ -89,13 +88,12 @@ impl FlatCSG {
     }
 }
 
-#[derive(serde::Serialize)]
 pub struct Cell {
     pub csg: FlatCSG,
     pub material_id: MaterialIndex,
 }
 
-#[derive(Default, Debug, Clone, serde::Serialize)]
+#[derive(Default, Debug, Clone)]
 pub struct PrimitiveStorage {
     spheres: SphereData,
     rpps: RPPData,
@@ -178,7 +176,6 @@ impl PrimitiveStorage {
     }
 }
 
-#[derive(serde::Serialize)]
 pub struct World {
     pub primitives: PrimitiveStorage,
     pub cells: Vec<Cell>,

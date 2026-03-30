@@ -1,12 +1,12 @@
 use clap::{Parser, ValueEnum};
 use miette::{IntoDiagnostic, Result};
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
-use radia_core::buildup::GPBuildupProvider;
+use radia_core::buildup::{GPBuildupProvider, GPParams};
 use radia_core::kernel::{FastCollector, calculate_dose_rate_parallel};
 use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
 use radia_core::physics::MaterialPhysicsTable;
 use radia_input::SimulationInput;
-use radia_report::{DetailedCollector, PhysicsSummary};
+use radia_report::DetailedCollector;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::info;
@@ -60,26 +60,12 @@ fn main() -> Result<()> {
         .get_interpolated_conversion_factors()
         .into_diagnostic()?;
 
-    let SimulationInput {
-        world,
-        user_defined_materials,
-        dose_quantity,
-        detectors,
-        source,
-    } = sim_input;
-
-    let radia_input::DoseQuantityInput {
-        buildup_params,
-        buildup_alias_map,
-        energy_groups: _,
-        conversion_factors: _,
-    } = dose_quantity;
-
-    let mut used_materials: Vec<String> = world
+    let mut used_materials = sim_input
+        .world
         .cells
         .iter()
         .map(|c| c.material_name.clone())
-        .collect();
+        .collect::<Vec<_>>();
     used_materials.sort();
     used_materials.dedup();
 
@@ -89,10 +75,13 @@ fn main() -> Result<()> {
         .map(|(i, name)| (name.clone(), i as MaterialIndex))
         .collect();
 
-    let primitive_names: Vec<String> = world.primitives.iter().map(|p| p.name().to_string()).collect();
-
     info!("Building world...");
-    let world = world.build(&material_map).into_diagnostic()?;
+    // Clone world input to keep sim_input intact for the collector later
+    let world = sim_input
+        .world
+        .clone()
+        .build(&material_map)
+        .into_diagnostic()?;
 
     info!("Building materials...");
     let mut registry = match load_material_registry_from_file("data/compositions.json") {
@@ -100,15 +89,18 @@ fn main() -> Result<()> {
         Err(_) => MaterialRegistry::new(),
     };
     info!("Registering user defined materials...");
-    for (name, mat_input) in user_defined_materials {
-        let def = mat_input.build();
-        registry.insert(name, def);
+    for (name, mat_input) in &sim_input.user_defined_materials {
+        let def = mat_input.clone().build();
+        registry.insert(name.clone(), def);
     }
 
     info!("Building buildup parameters...");
     let mut gp_provider = GPBuildupProvider::new();
-    for (name, params) in buildup_params {
-        gp_provider.insert_data(name, params.into_iter().map(|p| p.into()).collect());
+    for (name, params) in &sim_input.dose_quantity.buildup_params {
+        gp_provider.insert_data(
+            name.clone(),
+            params.iter().map(|p| GPParams::from(p.clone())).collect(),
+        );
     }
 
     info!("Loading physical datatables...");
@@ -122,17 +114,17 @@ fn main() -> Result<()> {
     info!("Calculating dose rates...");
     let mut detector_doses = HashMap::new();
 
-    let energy_groups = source.energy_groups;
-    let intensity_by_group = source.intensity_by_group;
-    let srcs = source.shape.build();
+    let energy_groups = &sim_input.source.energy_groups;
+    let intensity_by_group = &sim_input.source.intensity_by_group;
+    let srcs = sim_input.source.shape.clone().build();
     info!("Number of sources: {}", srcs.len());
 
     info!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(
         &used_materials,
-        &buildup_alias_map,
+        &sim_input.dose_quantity.buildup_alias_map,
         &registry,
-        &energy_groups,
+        energy_groups,
         &provider,
         &gp_provider,
     )
@@ -142,13 +134,13 @@ fn main() -> Result<()> {
 
     match args.collector {
         CollectorSub::Fast => {
-            for det in &detectors {
+            for det in &sim_input.detectors {
                 let mut collector = FastCollector::default();
                 let dose_rate = calculate_dose_rate_parallel(
                     &physics_table,
                     &world,
                     &conversion_factors,
-                    &intensity_by_group,
+                    intensity_by_group,
                     glam::Vec3A::from(det.position),
                     &srcs,
                     chunk_size,
@@ -158,60 +150,20 @@ fn main() -> Result<()> {
             }
         }
         CollectorSub::Detailed => {
-            let mut evaluated_materials = Vec::new();
-            for (i, name) in used_materials.iter().enumerate() {
-                if let Some(mat_def) = registry.get_material(name) {
-                    let mut mu_by_group = Vec::new();
-                    let mut buildup_by_group = Vec::new();
-                    for ig in 0..energy_groups.len() {
-                        let mu = physics_table.get_mu_data()[i * energy_groups.len() + ig];
-                        let buildup = physics_table.get_buildup_model(i, ig).to_string();
-                        mu_by_group.push(mu);
-                        buildup_by_group.push(buildup);
-                    }
-                    evaluated_materials.push(radia_report::EvaluatedMaterial {
-                        name: name.clone(),
-                        density: mat_def.density(),
-                        composition: mat_def.composition().clone(),
-                        mu_by_group,
-                        buildup_by_group,
-                    });
-                }
-            }
-
-            let physics_summary = PhysicsSummary {
-                cross_section_library: "NIST XCOM (JSON)".to_string(),
-                buildup_library: "Geometric Progression (GP)".to_string(),
-                conversion_factors: "Interpolated".to_string(),
-                energy_groups: energy_groups.clone(),
-                evaluated_materials,
-            };
-
-            // Attempt to read the original file to echo its contents, otherwise default to Null
-            let input_echo = std::fs::read_to_string(&args.input)
-                .ok()
-                .map(serde_json::Value::String)
-                .unwrap_or(serde_json::Value::Null);
-
-            let recognized_world = serde_json::json!({
-                "primitives": world.primitives.get_primitives(),
-                "cells": world.cells,
-            });
-
             let mut global_collector = DetailedCollector::new(
-                physics_summary,
-                input_echo,
+                &sim_input,
+                &physics_table,
+                &registry,
+                &world,
                 args.input.to_string_lossy().to_string(),
-                Some(recognized_world),
-                primitive_names,
             );
 
-            for det in &detectors {
+            for det in &sim_input.detectors {
                 let dose_rate = calculate_dose_rate_parallel(
                     &physics_table,
                     &world,
                     &conversion_factors,
-                    &intensity_by_group,
+                    intensity_by_group,
                     glam::Vec3A::from(det.position),
                     &srcs,
                     chunk_size,
@@ -229,7 +181,7 @@ fn main() -> Result<()> {
         }
     }
 
-    for det in detectors {
+    for det in sim_input.detectors {
         let dose_rate = detector_doses.get(&det.name).unwrap_or(&0.0);
         info!(
             "Detector '{}' at {:?}: Dose Rate = {:.6e}",

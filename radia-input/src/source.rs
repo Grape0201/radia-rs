@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::{MinMaxBounds, is_all_zero_or_more, is_sorted, is_vector_longer_than_epsilon};
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Clone)]
 #[serde(tag = "type")]
 pub enum SourceShapeInput {
     #[serde(alias = "Point")]
@@ -65,7 +65,7 @@ pub enum SourceShapeInput {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Clone)]
 pub struct SourceInput {
     #[garde(custom(is_all_zero_or_more), custom(is_sorted), length(min = 1))]
     pub energy_groups: Vec<f32>,

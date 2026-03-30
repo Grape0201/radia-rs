@@ -10,7 +10,7 @@ pub(crate) fn is_vector_longer_than_epsilon(v: &[f32; 3], _ctx: &()) -> garde::R
         Err(garde::Error::new("cylinder vector is too short"))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinMaxBounds {
     pub min: [f32; 3],
     pub max: [f32; 3],

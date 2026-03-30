@@ -44,7 +44,7 @@ pub enum InputError {
     CsgParseError(#[from] csg_parser::CSGParseError),
 }
 
-#[derive(Deserialize, Debug, Validate)]
+#[derive(Deserialize, Debug, Validate, Clone)]
 pub struct DoseQuantityInput {
     #[garde(dive)]
     #[serde(default)]
@@ -58,7 +58,7 @@ pub struct DoseQuantityInput {
     pub conversion_factors: Vec<f32>,
 }
 
-#[derive(Deserialize, Debug, Validate)]
+#[derive(Deserialize, Debug, Validate, Clone)]
 pub struct DetectorInput {
     #[garde(length(min = 1))]
     pub name: String,
@@ -66,7 +66,7 @@ pub struct DetectorInput {
     pub position: [f32; 3],
 }
 
-#[derive(Deserialize, Debug, Validate)]
+#[derive(Deserialize, Debug, Validate, Clone)]
 pub struct SimulationInput {
     #[garde(dive)]
     #[serde(default)]

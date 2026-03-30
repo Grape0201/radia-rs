@@ -7,7 +7,6 @@ edition = "2024"
 glam.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-serde.workspace = true
 rayon = "1.11.0"
 
 [dev-dependencies]

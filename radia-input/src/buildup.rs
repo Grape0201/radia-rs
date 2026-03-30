@@ -2,7 +2,7 @@ use garde::Validate;
 use radia_core::buildup::GPParams;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Validate)]
+#[derive(Serialize, Deserialize, Debug, Validate, Clone)]
 pub struct GPParamsInput {
     #[garde(range(min = 0.0))]
     pub energy_mev: f32,

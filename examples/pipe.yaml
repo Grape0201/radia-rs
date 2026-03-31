@@ -1,0 +1,76 @@
+# Example: Radioactive Fluid Pipe in a Trench
+# This model represents a steel pipe carrying radioactive water (N-16)
+# from a reactor's primary coolant system. A concrete wall is placed for shielding.
+# The source is a cylindrical volume within the pipe.
+# N-16 emits high-energy gamma rays (6.13 MeV, 7.11 MeV).
+
+world:
+  primitives:
+    - name: fluid
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 1000.0, 0.0]
+      radius: 10.0
+    - name: pipe_wall
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 1000.0, 0.0]
+      radius: 12.0
+    - name: trench_wall
+      type: "RPP"
+      min: [50.0, -1000.0, -100.0]
+      max: [100.0, 1000.0, 100.0]
+  cells:
+    - material_name: "Water"
+      csg: "fluid"
+    - material_name: "Iron"
+      csg: "pipe_wall - fluid"
+    - material_name: "Concrete"
+      csg: "trench_wall"
+
+user_defined_materials:
+  Water:
+    density: 1.0
+    composition: 
+      "H": 0.112
+      "O": 0.888
+  Iron:
+    density: 7.87
+    composition: 
+      "Fe": 1.0
+  Concrete:
+    density: 2.3
+    composition: 
+      "O": 0.581
+      "Si": 0.370
+      "Ca": 0.049
+
+dose_quantity:
+  buildup_alias_map:
+    "Water": "none"
+    "Iron": "none"
+    "Concrete": "none"
+  # N-16 energies
+  energy_groups: [6.13, 7.11]
+  conversion_factors: [1.0, 1.0]
+
+source:
+  type: "Cylinder"
+  start: [0.0, 0.0, 0.0]
+  axis: [0.0, 1000.0, 0.0]
+  radius: 10.0
+  nd_r: 5
+  nd_c: 20
+  nd_h: 50
+  total_intensity: 1.0e8
+  energy_groups: [6.13, 7.11]
+  # Relative emission probabilities: 6.13 MeV (67%), 7.11 MeV (5%)
+  intensity_by_group: [0.93, 0.07]
+
+detectors:
+  - name: SurfaceOfPipe
+    position: [12.0, 500.0, 0.0]
+  - name: FrontOfWall
+    position: [40.0, 500.0, 0.0]
+  - name: BehindWall
+    position: [110.0, 500.0, 0.0]

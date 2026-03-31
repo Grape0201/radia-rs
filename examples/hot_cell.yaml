@@ -1,0 +1,70 @@
+# Example: Hot Cell with Lead Glass Window
+# This model represents a concrete cell with a large lead glass observation window.
+# The source is a point source of Co-60 (1.17, 1.33 MeV) at the center of the cell.
+# Detectors are placed behind the concrete wall and behind the lead glass window.
+
+world:
+  primitives:
+    - name: room
+      type: "RPP"
+      min: [-200.0, -200.0, -200.0]
+      max: [200.0, 200.0, 200.0]
+    - name: wall
+      type: "RPP"
+      min: [200.0, -200.0, -200.0]
+      max: [300.0, 200.0, 200.0]
+    - name: window_hole
+      type: "RPP"
+      min: [200.0, -50.0, -50.0]
+      max: [300.0, 50.0, 50.0]
+  cells:
+    - material_name: "Air"
+      csg: "room"
+    - material_name: "Concrete"
+      csg: "wall - window_hole"
+    - material_name: "LeadGlass"
+      csg: "window_hole"
+
+user_defined_materials:
+  Air:
+    density: 0.0012
+    composition:
+      "N": 0.755
+      "O": 0.232
+      "Ar": 0.013
+  Concrete:
+    density: 2.3
+    composition:
+      "O": 0.552
+      "Si": 0.352
+      "Ca": 0.046
+      "Al": 0.035
+      "Fe": 0.015
+  LeadGlass:
+    density: 5.2
+    composition:
+      "Pb": 0.65
+      "O": 0.25
+      "Si": 0.10
+
+dose_quantity:
+  buildup_alias_map:
+    "Air": "none"
+    "Concrete": "none"
+    "LeadGlass": "none"
+  # Co-60 energies
+  energy_groups: [1.173, 1.332]
+  conversion_factors: [1.0, 1.0]
+
+source:
+  type: "Point"
+  position: [0.0, 0.0, 0.0]
+  intensity: 3.7e11
+  energy_groups: [1.173, 1.332]
+  intensity_by_group: [0.5, 0.5]
+
+detectors:
+  - name: BehindWall
+    position: [310.0, 100.0, 0.0]
+  - name: BehindWindow
+    position: [310.0, 0.0, 0.0]

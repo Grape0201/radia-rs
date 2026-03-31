@@ -1,0 +1,95 @@
+# Example: Multi-layer Cylindrical Cask for Spent Fuel
+# This model represents a storage cask with:
+# 1. Inner Iron shell
+# 2. Lead gamma shield
+# 3. Water neutron/gamma shield
+# 4. Outer Iron shell
+# Source is a mixture of Cs-137 (0.662 MeV) and Co-60 (1.17, 1.33 MeV).
+
+world:
+  primitives:
+    - name: cavity
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 0.0, 400.0]
+      radius: 50.0
+    - name: inner_shell
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 0.0, 410.0]
+      radius: 55.0
+    - name: lead_shield
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 0.0, 440.0]
+      radius: 70.0
+    - name: neutron_shield
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 0.0, 480.0]
+      radius: 90.0
+    - name: outer_shell
+      type: "CYL"
+      center: [0.0, 0.0, 0.0]
+      vector: [0.0, 0.0, 490.0]
+      radius: 95.0
+  cells:
+    - material_name: "Air"
+      csg: "cavity"
+    - material_name: "Iron"
+      csg: "inner_shell - cavity"
+    - material_name: "Lead"
+      csg: "lead_shield - inner_shell"
+    - material_name: "Water"
+      csg: "neutron_shield - lead_shield"
+    - material_name: "Iron"
+      csg: "outer_shell - neutron_shield"
+
+user_defined_materials:
+  Air:
+    density: 0.0012
+    composition:
+      "N": 0.755
+      "O": 0.232
+      "Ar": 0.013
+  Water:
+    density: 1.0
+    composition:
+      "H": 0.112
+      "O": 0.888
+  Iron:
+    density: 7.87
+    composition:
+      "Fe": 1.0
+  Lead:
+    density: 11.35
+    composition:
+      "Pb": 1.0
+
+dose_quantity:
+  buildup_alias_map:
+    "Air": "none"
+    "Water": "none"
+    "Iron": "none"
+    "Lead": "none"
+  # Representative of Cs-137 (0.662) and Co-60 (1.173, 1.332)
+  energy_groups: [0.6617, 1.173, 1.332]
+  conversion_factors: [1.0, 1.0, 1.0]
+
+source:
+  type: "Cylinder"
+  start: [0.0, 0.0, 10.0]
+  axis: [0.0, 0.0, 380.0]
+  radius: 45.0
+  nd_r: 20
+  nd_c: 20
+  nd_h: 20
+  total_intensity: 1.0e10
+  energy_groups: [0.6617, 1.173, 1.332]
+  intensity_by_group: [0.6, 0.2, 0.2]
+
+detectors:
+  - name: Surface
+    position: [95.0, 0.0, 200.0]
+  - name: 1m_Away
+    position: [195.0, 0.0, 200.0]

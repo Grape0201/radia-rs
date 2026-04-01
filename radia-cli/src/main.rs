@@ -40,6 +40,13 @@ struct Args {
         help = "Output file for the detailed markdown report"
     )]
     output_report: PathBuf,
+
+    #[arg(
+        long,
+        default_value_t = 1000,
+        help = "The number of source points to process in a single parallel chunk"
+    )]
+    chunk_size: usize,
 }
 
 fn main() -> Result<()> {
@@ -111,13 +118,9 @@ fn main() -> Result<()> {
         ),
     };
 
-    info!("Calculating dose rates...");
-    let mut detector_doses = HashMap::new();
-
     let energy_groups = &sim_input.source.energy_groups;
     let intensity_by_group = &sim_input.source.intensity_by_group;
     let srcs = sim_input.source.shape.clone().build();
-    info!("Number of sources: {}", srcs.len());
 
     info!("Generating material physics table for a source...");
     let physics_table = MaterialPhysicsTable::generate(
@@ -130,7 +133,7 @@ fn main() -> Result<()> {
     )
     .into_diagnostic()?;
 
-    let chunk_size = 1000;
+    info!("Calculating dose rates...");
 
     match args.collector {
         CollectorSub::Fast => {
@@ -143,10 +146,13 @@ fn main() -> Result<()> {
                     intensity_by_group,
                     glam::Vec3A::from(det.position),
                     &srcs,
-                    chunk_size,
+                    args.chunk_size,
                     &mut collector,
                 );
-                *detector_doses.entry(det.name.clone()).or_insert(0.0) += dose_rate;
+                info!(
+                    "Detector '{}' at {:?}: Dose Rate = {:.6e}",
+                    det.name, det.position, dose_rate
+                );
             }
         }
         CollectorSub::Detailed => {
@@ -166,10 +172,13 @@ fn main() -> Result<()> {
                     intensity_by_group,
                     glam::Vec3A::from(det.position),
                     &srcs,
-                    chunk_size,
+                    args.chunk_size,
                     &mut global_collector,
                 );
-                *detector_doses.entry(det.name.clone()).or_insert(0.0) += dose_rate;
+                info!(
+                    "Detector '{}' at {:?}: Dose Rate = {:.6e}",
+                    det.name, det.position, dose_rate
+                );
             }
 
             let markdown = global_collector.to_markdown();
@@ -179,14 +188,6 @@ fn main() -> Result<()> {
                 info!("Wrote detailed report to {:?}", args.output_report);
             }
         }
-    }
-
-    for det in sim_input.detectors {
-        let dose_rate = detector_doses.get(&det.name).unwrap_or(&0.0);
-        info!(
-            "Detector '{}' at {:?}: Dose Rate = {:.6e}",
-            det.name, det.position, dose_rate
-        );
     }
 
     Ok(())

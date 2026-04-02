@@ -2,10 +2,12 @@ use clap::{Parser, ValueEnum};
 use miette::{IntoDiagnostic, Result};
 use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
 use radia_core::buildup::{GPBuildupProvider, GPParams};
-use radia_core::kernel::{FastCollector, calculate_dose_rate_parallel};
+use radia_core::csg::World;
+use radia_core::kernel::{DoseCollector, FastCollector, calculate_dose_rate_parallel};
 use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
 use radia_core::physics::MaterialPhysicsTable;
-use radia_input::SimulationInput;
+use radia_core::source::PointSource;
+use radia_input::{DetectorInput, SimulationInput};
 use radia_report::DetailedCollector;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -137,26 +139,20 @@ fn main() -> Result<()> {
 
     match args.collector {
         CollectorSub::Fast => {
-            for det in &sim_input.detectors {
-                let mut collector = FastCollector::default();
-                let dose_rate = calculate_dose_rate_parallel(
-                    &physics_table,
-                    &world,
-                    &conversion_factors,
-                    intensity_by_group,
-                    glam::Vec3A::from(det.position),
-                    &srcs,
-                    args.chunk_size,
-                    &mut collector,
-                );
-                info!(
-                    "Detector '{}' at {:?}: Dose Rate = {:.6e}",
-                    det.name, det.position, dose_rate
-                );
-            }
+            let mut collector = FastCollector::default();
+            run_simulation(
+                &mut collector,
+                &physics_table,
+                &world,
+                &conversion_factors,
+                intensity_by_group,
+                &srcs,
+                &sim_input.detectors,
+                args.chunk_size,
+            );
         }
         CollectorSub::Detailed => {
-            let mut global_collector = DetailedCollector::new(
+            let mut collector = DetailedCollector::new(
                 &sim_input,
                 &physics_table,
                 &registry,
@@ -164,24 +160,18 @@ fn main() -> Result<()> {
                 args.input.to_string_lossy().to_string(),
             );
 
-            for det in &sim_input.detectors {
-                let dose_rate = calculate_dose_rate_parallel(
-                    &physics_table,
-                    &world,
-                    &conversion_factors,
-                    intensity_by_group,
-                    glam::Vec3A::from(det.position),
-                    &srcs,
-                    args.chunk_size,
-                    &mut global_collector,
-                );
-                info!(
-                    "Detector '{}' at {:?}: Dose Rate = {:.6e}",
-                    det.name, det.position, dose_rate
-                );
-            }
+            run_simulation(
+                &mut collector,
+                &physics_table,
+                &world,
+                &conversion_factors,
+                intensity_by_group,
+                &srcs,
+                &sim_input.detectors,
+                args.chunk_size,
+            );
 
-            let markdown = global_collector.to_markdown();
+            let markdown = collector.to_markdown();
             if let Err(e) = std::fs::write(&args.output_report, markdown) {
                 tracing::error!("Failed to write report to {:?}: {}", args.output_report, e);
             } else {
@@ -191,4 +181,33 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Run the dose-rate calculation loop over all detectors using a generic collector.
+fn run_simulation<C: DoseCollector + Send + Default>(
+    collector: &mut C,
+    physics_table: &MaterialPhysicsTable,
+    world: &World,
+    conversion_factors: &[f32],
+    intensity_by_group: &[f32],
+    sources: &[PointSource],
+    detectors: &[DetectorInput],
+    chunk_size: usize,
+) {
+    for det in detectors {
+        let dose_rate = calculate_dose_rate_parallel(
+            physics_table,
+            world,
+            conversion_factors,
+            intensity_by_group,
+            glam::Vec3A::from(det.position),
+            sources,
+            chunk_size,
+            collector,
+        );
+        info!(
+            "Detector '{}' at {:?}: Dose Rate = {:.6e}",
+            det.name, det.position, dose_rate
+        );
+    }
 }

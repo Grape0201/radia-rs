@@ -1,8 +1,8 @@
 use glam::Vec3A;
+use radia_core::csg::{Instruction, World};
 use radia_core::kernel::DoseCollector;
 use radia_core::mass_attenuation::{MaterialIndex, MaterialRegistry};
 use radia_core::physics::MaterialPhysicsTable;
-use radia_core::csg::{World, Instruction};
 use radia_input::SimulationInput;
 
 use crate::{
@@ -44,7 +44,10 @@ impl DetailedCollector {
             .unwrap_or(serde_json::Value::Null);
 
         // Build Physics Summary
-        let mut used_materials: Vec<String> = sim_input.world.cells.iter()
+        let mut used_materials: Vec<String> = sim_input
+            .world
+            .cells
+            .iter()
             .map(|c| c.material_name.clone())
             .collect();
         used_materials.sort();
@@ -90,7 +93,9 @@ impl DetailedCollector {
                     Instruction::Intersection => insts.push(serde_json::json!("Intersection")),
                     Instruction::Difference => insts.push(serde_json::json!("Difference")),
                     Instruction::Complement => insts.push(serde_json::json!("Complement")),
-                    Instruction::PushPrimitive(id) => insts.push(serde_json::json!({"PushPrimitive": id})),
+                    Instruction::PushPrimitive(id) => {
+                        insts.push(serde_json::json!({"PushPrimitive": id}))
+                    }
                 }
             }
             cell_json.push(serde_json::json!({
@@ -99,8 +104,11 @@ impl DetailedCollector {
             }));
         }
 
-        let prim_json: Vec<_> = world.primitives.get_primitives().iter().map(|p| {
-            match p {
+        let prim_json: Vec<_> = world
+            .primitives
+            .get_primitives()
+            .iter()
+            .map(|p| match p {
                 radia_core::primitive::Primitive::Sphere { center, radius2 } => {
                     serde_json::json!({
                         "type": "Sphere",
@@ -115,7 +123,12 @@ impl DetailedCollector {
                         "max": [max.x, max.y, max.z]
                     })
                 }
-                radia_core::primitive::Primitive::FiniteCylinder { center, direction, radius2, half_height } => {
+                radia_core::primitive::Primitive::FiniteCylinder {
+                    center,
+                    direction,
+                    radius2,
+                    half_height,
+                } => {
                     serde_json::json!({
                         "type": "FiniteCylinder",
                         "center": [center.x, center.y, center.z],
@@ -124,15 +137,20 @@ impl DetailedCollector {
                         "half_height": half_height
                     })
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         let recognized_world = serde_json::json!({
             "primitives": prim_json,
             "cells": cell_json
         });
 
-        let primitive_names: Vec<String> = sim_input.world.primitives.iter().map(|p| p.name().to_string()).collect();
+        let primitive_names: Vec<String> = sim_input
+            .world
+            .primitives
+            .iter()
+            .map(|p| p.name().to_string())
+            .collect();
 
         Self {
             report: SimulationReport {
@@ -186,7 +204,7 @@ impl DetailedCollector {
 
         if let Some(world) = &self.report.recognized_world {
             let _ = writeln!(md, "## Recognized World Structure");
-            
+
             // Render Primitives
             if let Some(primitives) = world.get("primitives").and_then(|p| p.as_array()) {
                 let _ = writeln!(md, "### Primitives");
@@ -207,7 +225,14 @@ impl DetailedCollector {
                             }
                         }
                     }
-                    let _ = writeln!(md, "| {} ({}) | {} | {} |", i, p_name, p_type, params.join(", "));
+                    let _ = writeln!(
+                        md,
+                        "| {} ({}) | {} | {} |",
+                        i,
+                        p_name,
+                        p_type,
+                        params.join(", ")
+                    );
                 }
                 let _ = writeln!(md);
             }
@@ -218,15 +243,22 @@ impl DetailedCollector {
                 let _ = writeln!(md, "| Index | Material | CSG Instructions (RPN) |");
                 let _ = writeln!(md, "|-------|----------|------------------------|");
                 for (i, c) in cells.iter().enumerate() {
-                    let mat_id = c.get("material_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let mat_id =
+                        c.get("material_id").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                     let mat_name = if mat_id < self.report.physics_data.evaluated_materials.len() {
-                        self.report.physics_data.evaluated_materials[mat_id].name.clone()
+                        self.report.physics_data.evaluated_materials[mat_id]
+                            .name
+                            .clone()
                     } else {
                         format!("Material_{}", mat_id)
                     };
-                    
+
                     let mut inst_strs = Vec::new();
-                    if let Some(instructions) = c.get("csg").and_then(|csg| csg.get("instructions")).and_then(|ins| ins.as_array()) {
+                    if let Some(instructions) = c
+                        .get("csg")
+                        .and_then(|csg| csg.get("instructions"))
+                        .and_then(|ins| ins.as_array())
+                    {
                         for inst in instructions {
                             if let Some(s) = inst.as_str() {
                                 inst_strs.push(s.to_string());
@@ -299,22 +331,31 @@ impl DetailedCollector {
             let _ = writeln!(md, "No results collected.");
         } else {
             for (i, res) in self.report.results.iter().enumerate() {
-                let _ = writeln!(md, "### Detector {} at `[{:.3}, {:.3}, {:.3}]`", i + 1, res.position[0], res.position[1], res.position[2]);
-                
+                let _ = writeln!(
+                    md,
+                    "### Detector {} at `[{:.3}, {:.3}, {:.3}]`",
+                    i + 1,
+                    res.position[0],
+                    res.position[1],
+                    res.position[2]
+                );
+
                 let mut buildup_parts = Vec::new();
                 let mut total_freq = 0;
                 for &count in res.buildup_material_frequencies.values() {
                     total_freq += count;
                 }
-                
+
                 let mut sorted_freqs: Vec<_> = res.buildup_material_frequencies.iter().collect();
                 sorted_freqs.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
-                
+
                 for (&mid, count) in sorted_freqs {
                     let freq = (*count as f32 / total_freq as f32) * 100.0;
                     let m_name = match mid {
                         Some(id) if id < self.report.physics_data.evaluated_materials.len() => {
-                            self.report.physics_data.evaluated_materials[id].name.clone()
+                            self.report.physics_data.evaluated_materials[id]
+                                .name
+                                .clone()
                         }
                         Some(id) => format!("Material_{}", id),
                         None => "Vacuum".to_string(),
@@ -347,11 +388,18 @@ impl DetailedCollector {
 
                     for eg in &res.energy_group_details {
                         let count = eg.count as f32;
+                        let energy = self
+                            .report
+                            .physics_data
+                            .energy_groups
+                            .get(eg.group_index)
+                            .copied()
+                            .unwrap_or(eg.energy_mev);
                         let _ = writeln!(
                             md,
                             "| {} | {:.3} | {} | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} | {:.2e} / {:.2e} / {:.2e} |",
                             eg.group_index,
-                            eg.energy_mev,
+                            energy,
                             eg.count,
                             eg.uncollided_flux_sum / count,
                             eg.uncollided_flux_min,
@@ -484,7 +532,9 @@ impl DoseCollector for DetailedCollector {
 
     fn record_buildup_material(&mut self, material_id: Option<usize>) {
         if let Some(res) = self.report.results.last_mut() {
-            *res.buildup_material_frequencies.entry(material_id).or_insert(0) += 1;
+            *res.buildup_material_frequencies
+                .entry(material_id)
+                .or_insert(0) += 1;
         }
     }
 
@@ -518,7 +568,13 @@ impl DoseCollector for DetailedCollector {
             } else {
                 res.energy_group_details.push(EnergyGroupResult {
                     group_index,
-                    energy_mev: 0.0,
+                    energy_mev: self
+                        .report
+                        .physics_data
+                        .energy_groups
+                        .get(group_index)
+                        .copied()
+                        .unwrap_or(0.0),
                     count: 1,
                     uncollided_flux_sum: uncollided_flux,
                     uncollided_flux_min: uncollided_flux,
@@ -558,6 +614,10 @@ impl DoseCollector for DetailedCollector {
                         .find(|e| e.group_index == other_eg.group_index)
                     {
                         eg.count += other_eg.count;
+                        // Preserve non-zero energy from whichever side has it
+                        if eg.energy_mev == 0.0 {
+                            eg.energy_mev = other_eg.energy_mev;
+                        }
                         eg.uncollided_flux_sum += other_eg.uncollided_flux_sum;
                         eg.uncollided_flux_min =
                             eg.uncollided_flux_min.min(other_eg.uncollided_flux_min);

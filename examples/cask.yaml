@@ -78,7 +78,7 @@ dose_quantity:
 
 source:
   type: "Cylinder"
-  start: [0.0, 0.0, 10.0]
+  start: [0.0, 0.0, -190.0]
   axis: [0.0, 0.0, 380.0]
   radius: 45.0
   nd_r: 20
@@ -90,6 +90,6 @@ source:
 
 detectors:
   - name: Surface
-    position: [95.0, 0.0, 200.0]
+    position: [95.0, 0.0, 0.0]
   - name: 1m_Away
-    position: [195.0, 0.0, 200.0]
+    position: [195.0, 0.0, 0.0]

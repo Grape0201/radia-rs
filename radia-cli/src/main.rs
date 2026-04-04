@@ -1,6 +1,8 @@
 use clap::{Parser, ValueEnum};
 use miette::{IntoDiagnostic, Result};
-use radia_cli::{JsonMassAttenuationProvider, load_material_registry_from_file};
+use radia_cli::{
+    JsonMassAttenuationProvider, load_buildup_registry_from_file, load_material_registry_from_file,
+};
 use radia_core::buildup::{GPBuildupProvider, GPParams};
 use radia_core::csg::World;
 use radia_core::kernel::{DoseCollector, FastCollector, calculate_dose_rate_parallel};
@@ -56,6 +58,12 @@ struct Args {
         help = "Path to the material registry JSON file (overrides default data/compositions.json)"
     )]
     material_registry: Option<PathBuf>,
+    #[arg(
+        long,
+        env = "RADIA_BUILDUP_REGISTRY",
+        help = "Path to the buildup registry JSON file"
+    )]
+    buildup_registry: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -118,7 +126,15 @@ fn main() -> Result<()> {
     }
 
     info!("Building buildup parameters...");
-    let mut gp_provider = GPBuildupProvider::new();
+    let mut gp_provider = if let Some(path) = &args.buildup_registry {
+        load_buildup_registry_from_file(path)?
+    } else {
+        match load_buildup_registry_from_file("data/buildup.json") {
+            Ok(r) => r,
+            Err(_) => GPBuildupProvider::new(),
+        }
+    };
+    info!("Registering user defined buildup parameters...");
     for (name, params) in &sim_input.dose_quantity.buildup_params {
         gp_provider.insert_data(
             name.clone(),

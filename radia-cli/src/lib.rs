@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 use miette::IntoDiagnostic;
+use radia_core::buildup::{GPBuildupProvider, GPParams};
 use radia_core::mass_attenuation::{
     AtomicNumber, MassAttenuationProvider, MassAttenuationProviderError, MaterialDef,
     MaterialRegistry,
@@ -28,6 +29,30 @@ struct _MaterialDef {
 impl From<_MaterialDef> for MaterialDef {
     fn from(value: _MaterialDef) -> Self {
         MaterialDef::new(value.composition, value.density)
+    }
+}
+
+/// G-P parameters for JSON deserialization.
+#[derive(Debug, Deserialize)]
+struct GpParamsData {
+    energy_mev: f32,
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    xk: f32,
+}
+
+impl From<GpParamsData> for GPParams {
+    fn from(value: GpParamsData) -> Self {
+        GPParams {
+            energy_mev: value.energy_mev,
+            a: value.a,
+            b: value.b,
+            c: value.c,
+            d: value.d,
+            xk: value.xk,
+        }
     }
 }
 
@@ -145,9 +170,25 @@ pub fn load_material_registry_from_file<P: AsRef<Path>>(
     Ok(registry)
 }
 
+pub fn load_buildup_registry_from_file<P: AsRef<Path>>(
+    path: P,
+) -> miette::Result<GPBuildupProvider> {
+    let file = File::open(path).into_diagnostic()?;
+    let reader = BufReader::new(file);
+    let data: HashMap<String, Vec<GpParamsData>> =
+        serde_json::from_reader(reader).into_diagnostic()?;
+    let mut provider = GPBuildupProvider::new();
+    for (name, params) in data {
+        let params: Vec<GPParams> = params.into_iter().map(|p| p.into()).collect();
+        provider.insert_data(name, params);
+    }
+    Ok(provider)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use radia_core::buildup::BuildupProvider;
 
     #[test]
     fn test_nist_json_provider() {
@@ -202,6 +243,51 @@ mod tests {
         // 0.75 MeV should interpolate between 0.5 and 1.0
         let val = provider.get_mass_attenuation(1, 0.75).unwrap();
         assert!(val > 0.1111 && val < 0.1263);
+
+        std::fs::remove_file(temp_path).unwrap();
+    }
+
+    #[test]
+    fn test_buildup_registry() {
+        use std::io::Write;
+        let temp_path = "/tmp/buildup_data.json";
+        let json_content = r#"{
+            "Water": [
+                {
+                    "energy_mev": 1.0,
+                    "a": 0.1,
+                    "b": 2.0,
+                    "c": 0.5,
+                    "d": 0.01,
+                    "xk": 10.0
+                },
+                {
+                    "energy_mev": 2.0,
+                    "a": 0.2,
+                    "b": 1.5,
+                    "c": 0.6,
+                    "d": 0.02,
+                    "xk": 12.0
+                }
+            ]
+        }"#;
+        let mut file = File::create(temp_path).unwrap();
+        file.write_all(json_content.as_bytes()).unwrap();
+
+        let provider = load_buildup_registry_from_file(temp_path).unwrap();
+        let model = provider
+            .get_model("Water", 1.5)
+            .expect("Should find and interpolate Water at 1.5 MeV");
+
+        use radia_core::buildup::BuildupModel;
+        if let BuildupModel::GeometricProgression { a, b, .. } = model {
+            // a should be (0.1 + 0.2) / 2 = 0.15 (approx, due to log-linear interp)
+            // b should be between 2.0 and 1.5
+            assert!(a > 0.1 && a < 0.2);
+            assert!(b > 1.5 && b < 2.0);
+        } else {
+            panic!("Expected GP model");
+        }
 
         std::fs::remove_file(temp_path).unwrap();
     }

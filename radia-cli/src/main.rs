@@ -11,7 +11,7 @@ use radia_input::{DetectorInput, SimulationInput};
 use radia_report::DetailedCollector;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -49,6 +49,13 @@ struct Args {
         help = "The number of source points to process in a single parallel chunk"
     )]
     chunk_size: usize,
+
+    #[arg(
+        long,
+        env = "RADIA_MATERIAL_REGISTRY",
+        help = "Path to the material registry JSON file (overrides default data/compositions.json)"
+    )]
+    material_registry: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -93,9 +100,16 @@ fn main() -> Result<()> {
         .into_diagnostic()?;
 
     info!("Building materials...");
-    let mut registry = match load_material_registry_from_file("data/compositions.json") {
-        Ok(r) => r,
-        Err(_) => MaterialRegistry::new(),
+    let mut registry = if let Some(path) = &args.material_registry {
+        load_material_registry_from_file(path)?
+    } else {
+        match load_material_registry_from_file("data/compositions.json") {
+            Ok(r) => r,
+            Err(_) => {
+                warn!("Material registry file not found, using empty registry.");
+                MaterialRegistry::new()
+            }
+        }
     };
     info!("Registering user defined materials...");
     for (name, mat_input) in &sim_input.user_defined_materials {

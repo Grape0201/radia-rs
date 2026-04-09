@@ -1,0 +1,209 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SimulationInput",
+  "description": "Radia radiation shielding simulation configuration",
+  "type": "object",
+  "required": ["dose_quantity", "detectors", "source"],
+  "properties": {
+    "world": {
+      "description": "Geometry definition (primitives and CSG cells)",
+      "type": "object",
+      "properties": {
+        "primitives": {
+          "description": "List of geometric primitives",
+          "type": "array",
+          "items": { "$ref": "#/definitions/Primitive" }
+        },
+        "cells": {
+          "description": "CSG cells composed from primitives",
+          "type": "array",
+          "items": { "$ref": "#/definitions/Cell" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "user_defined_materials": {
+      "description": "Named user-defined material definitions",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/MaterialDef" }
+    },
+    "dose_quantity": {
+      "description": "Dose quantity parameters",
+      "type": "object",
+      "required": ["energy_groups", "conversion_factors"],
+      "properties": {
+        "energy_groups": {
+          "description": "Energy bin boundaries [MeV], must be sorted ascending",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number", "minimum": 0 }
+        },
+        "conversion_factors": {
+          "description": "Dose conversion factor for each energy group",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number", "minimum": 0 }
+        },
+        "buildup_params": {
+          "description": "GP buildup factor parameters keyed by material name",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/GPParams" }
+          }
+        },
+        "buildup_alias_map": {
+          "description": "Map from material name to buildup factor library entry",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "detectors": {
+      "description": "Detector point positions",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/Detector" }
+    },
+    "source": { "$ref": "#/definitions/Source" }
+  },
+  "definitions": {
+    "Vec3": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "Primitive": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique primitive identifier used in CSG expressions"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Sphere", "SPH", "RectangularParallelPiped", "RPP", "Aabb", "AABB", "FiniteCylinder", "CYL"],
+          "description": "Primitive geometry type"
+        },
+        "center": {
+          "$ref": "#/definitions/Vec3",
+          "description": "Centre position [cm] (Sphere, FiniteCylinder)"
+        },
+        "radius": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Radius [cm] (Sphere, FiniteCylinder)"
+        },
+        "min": {
+          "$ref": "#/definitions/Vec3",
+          "description": "Minimum corner [cm] (RectangularParallelPiped)"
+        },
+        "max": {
+          "$ref": "#/definitions/Vec3",
+          "description": "Maximum corner [cm] (RectangularParallelPiped)"
+        },
+        "vector": {
+          "$ref": "#/definitions/Vec3",
+          "description": "Cylinder axis vector [cm]; magnitude = cylinder length (FiniteCylinder)"
+        }
+      }
+    },
+    "Cell": {
+      "type": "object",
+      "required": ["material_name", "csg"],
+      "additionalProperties": false,
+      "properties": {
+        "material_name": {
+          "type": "string",
+          "description": "Name of the material filling this cell"
+        },
+        "csg": {
+          "type": "string",
+          "description": "CSG expression: use primitive names with +, -, * operators and parentheses"
+        }
+      }
+    },
+    "MaterialDef": {
+      "type": "object",
+      "required": ["density", "composition"],
+      "additionalProperties": false,
+      "properties": {
+        "density": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Material density [g/cm³]"
+        },
+        "composition": {
+          "type": "object",
+          "description": "Elemental mass fractions keyed by atomic number (integer)",
+          "additionalProperties": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "Detector": {
+      "type": "object",
+      "required": ["name", "position"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "position": { "$ref": "#/definitions/Vec3", "description": "Detector position [cm]" }
+      }
+    },
+    "GPParams": {
+      "type": "object",
+      "description": "Geometric-progression (GP) buildup factor parameters",
+      "properties": {
+        "energy": { "type": "number", "minimum": 0 },
+        "b": { "type": "number" },
+        "c": { "type": "number" },
+        "a": { "type": "number" },
+        "x_k": { "type": "number" },
+        "d": { "type": "number" }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "required": ["type", "energy_groups", "intensity_by_group"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["Point", "Cylinder", "Sphere", "Cuboid"],
+          "description": "Source geometry type"
+        },
+        "energy_groups": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number", "minimum": 0 },
+          "description": "Energy group midpoints [MeV], sorted ascending"
+        },
+        "intensity_by_group": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number", "minimum": 0 },
+          "description": "Fractional intensity per energy group (values must sum to 1)"
+        },
+        "position": { "$ref": "#/definitions/Vec3", "description": "[Point] Source position [cm]" },
+        "intensity": { "type": "number", "minimum": 0, "description": "[Point] Source intensity" },
+        "start": { "$ref": "#/definitions/Vec3", "description": "[Cylinder] Start of axis [cm]" },
+        "axis": { "$ref": "#/definitions/Vec3", "description": "[Cylinder] Axis vector [cm]" },
+        "nd_c": { "type": "integer", "minimum": 1, "description": "[Cylinder] Angular divisions" },
+        "nd_h": { "type": "integer", "minimum": 1, "description": "[Cylinder] Height divisions" },
+        "nd_r": { "type": "integer", "minimum": 1, "description": "[Cylinder/Sphere] Radial divisions" },
+        "nd_theta": { "type": "integer", "minimum": 1, "description": "[Sphere] Theta divisions" },
+        "nd_phi": { "type": "integer", "minimum": 1, "description": "[Sphere] Phi divisions" },
+        "nd_x": { "type": "integer", "minimum": 1, "description": "[Cuboid] X divisions" },
+        "nd_y": { "type": "integer", "minimum": 1, "description": "[Cuboid] Y divisions" },
+        "nd_z": { "type": "integer", "minimum": 1, "description": "[Cuboid] Z divisions" },
+        "center": { "$ref": "#/definitions/Vec3", "description": "[Sphere] Centre position [cm]" },
+        "radius": { "type": "number", "minimum": 0, "description": "[Cylinder/Sphere] Radius [cm]" },
+        "total_intensity": { "type": "number", "minimum": 0, "description": "Total source intensity [photons/s]" },
+        "min": { "$ref": "#/definitions/Vec3", "description": "[Cuboid] Minimum corner [cm]" },
+        "max": { "$ref": "#/definitions/Vec3", "description": "[Cuboid] Maximum corner [cm]" }
+      }
+    }
+  }
+}

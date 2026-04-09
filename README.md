@@ -19,12 +19,17 @@ This repository is a Cargo workspace consisting of the following crates:
 - **`radia-report`**: Formatting and output logic.
   - Generates detailed reports (JSON/CSV) for regulatory compliance.
   - Implements zero-cost abstractions for data collection.
+- **`radia-gui`**: Desktop application for editing and visualizing simulations.
+  - Built with Tauri v2, React, and Three.js.
+  - Provides a 3D preview of the geometry alongside a Monaco-powered YAML editor.
+  - Leverages `radia-input` for real-time validation of simulation configurations.
 
 ## Key Features
 
 - **Point Kernel Engine**: Accurate photon shielding calculation using the Point Kernel Method.
 - **SIMD Acceleration**: Geometric primitive intersections (Sphere, RPP, Cylinder) are optimized using `glam`'s SIMD-backed types and batched algorithms.
 - **Parallel Execution**: Leverages `rayon` for massive parallelization of dose-rate calculations across CPU cores.
+- **Interactive 3D Visualization**: Real-time rendering of complex CSG geometries within the desktop application.
 - **Comprehensive Physics**: Supports multiple buildup factor models (Constant, Taylor, Berger, G-P, Table) and composition-based mass attenuation calculations.
 - **Robust Validation**: Two-stage validation policy ensuring both structural integrity and physical consistency.
 
@@ -64,6 +69,16 @@ cargo bench
 
 # Run specific kernel benchmarks in radia-core
 cargo bench --package radia-core --bench kernel_benchmark
+```
+
+### GUI Application
+
+The GUI requires [Bun](https://bun.sh/) for frontend dependencies.
+
+```bash
+cd radia-gui
+bun install
+bun tauri dev
 ```
 
 ## License

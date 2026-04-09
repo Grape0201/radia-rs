@@ -3,7 +3,8 @@ members = [
     "radia-core",
     "radia-cli",
     "radia-input",
-    "radia-report"
+    "radia-report",
+    "radia-gui/src-tauri"
 ]
 resolver = "2"
 

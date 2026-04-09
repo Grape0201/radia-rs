@@ -86,10 +86,14 @@ impl SimulationInput {
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, InputError> {
         let path_ref = path.as_ref();
         let yaml_str = std::fs::read_to_string(path_ref).map_err(InputError::Io)?;
+        Self::from_yaml_str(&yaml_str)
+    }
 
-        let input: SimulationInput = serde_saphyr::from_str_valid(&yaml_str)?;
+    /// Parse and validate a `SimulationInput` from a YAML string.
+    /// Useful for in-memory validation (e.g. from a GUI editor) without requiring a file path.
+    pub fn from_yaml_str(yaml: &str) -> Result<Self, InputError> {
+        let input: SimulationInput = serde_saphyr::from_str_valid(yaml)?;
         input.validate()?;
-
         Ok(input)
     }
 

@@ -3204,6 +3204,7 @@ dependencies = [
 name = "radia-gui"
 version = "0.1.0"
 dependencies = [
+ "radia-core",
  "radia-input",
  "serde",
  "serde_json",

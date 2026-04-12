@@ -41,9 +41,30 @@ pub struct PrimitiveData {
 }
 
 #[derive(Debug, Serialize, Clone)]
+#[serde(tag = "op")]
+pub enum InstructionJson {
+    #[serde(rename = "push_primitive")]
+    PushPrimitive { index: usize },
+    #[serde(rename = "union")]
+    Union,
+    #[serde(rename = "intersection")]
+    Intersection,
+    #[serde(rename = "difference")]
+    Difference,
+    #[serde(rename = "complement")]
+    Complement,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CsgData {
+    pub instructions: Vec<InstructionJson>,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct CellData {
     pub material_name: String,
-    pub csg: String,
+    pub csg_string: String,
+    pub csg: CsgData,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -54,9 +75,7 @@ pub struct DetectorData {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SourceData {
-    pub shape_type: String,
-    pub center: Option<[f32; 3]>,
-    pub radius: Option<f32>,
+    pub shape: PrimitiveShape,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -103,7 +122,11 @@ fn parse_geometry(yaml: String) -> Result<GeometryData, String> {
         .iter()
         .map(|p| {
             let (name, shape) = match p {
-                PrimitiveInput::Sphere { name, center, radius } => (
+                PrimitiveInput::Sphere {
+                    name,
+                    center,
+                    radius,
+                } => (
                     name.clone(),
                     PrimitiveShape::Sphere {
                         center: *center,
@@ -135,13 +158,43 @@ fn parse_geometry(yaml: String) -> Result<GeometryData, String> {
         })
         .collect();
 
+    let mut material_map = std::collections::HashMap::new();
+    for (i, c) in input.world.cells.iter().enumerate() {
+        material_map.insert(c.material_name.clone(), i);
+    }
+
+    let built_world = input
+        .world
+        .clone()
+        .build(&material_map)
+        .map_err(|e| e.to_string())?;
+
     let cells: Vec<CellData> = input
         .world
         .cells
         .iter()
-        .map(|c| CellData {
-            material_name: c.material_name.clone(),
-            csg: c.csg.clone(),
+        .zip(built_world.cells.iter())
+        .map(|(input_cell, built_cell)| {
+            let instructions = built_cell
+                .csg
+                .instructions
+                .iter()
+                .map(|inst| match inst {
+                    radia_core::csg::Instruction::PushPrimitive(idx) => {
+                        InstructionJson::PushPrimitive { index: *idx }
+                    }
+                    radia_core::csg::Instruction::Union => InstructionJson::Union,
+                    radia_core::csg::Instruction::Intersection => InstructionJson::Intersection,
+                    radia_core::csg::Instruction::Difference => InstructionJson::Difference,
+                    radia_core::csg::Instruction::Complement => InstructionJson::Complement,
+                })
+                .collect();
+
+            CellData {
+                material_name: input_cell.material_name.clone(),
+                csg_string: input_cell.csg.clone(),
+                csg: CsgData { instructions },
+            }
         })
         .collect();
 
@@ -154,35 +207,41 @@ fn parse_geometry(yaml: String) -> Result<GeometryData, String> {
         })
         .collect();
 
-    // Extract a representative source position / radius for visualisation.
+    // Extract a representative source shape for visualisation.
     let source = Some(match &input.source.shape {
         SourceShapeInput::Point { position, .. } => SourceData {
-            shape_type: "Point".to_string(),
-            center: Some(*position),
-            radius: Some(2.0), // fixed marker size
+            shape: PrimitiveShape::Sphere {
+                center: *position,
+                radius: 2.0, // fixed marker size
+            },
         },
         SourceShapeInput::Sphere { center, radius, .. } => SourceData {
-            shape_type: "Sphere".to_string(),
-            center: Some(*center),
-            radius: Some(*radius),
+            shape: PrimitiveShape::Sphere {
+                center: *center,
+                radius: *radius,
+            },
         },
-        SourceShapeInput::Cylinder { start, axis, radius, .. } => SourceData {
-            shape_type: "Cylinder".to_string(),
-            center: Some([
-                start[0] + axis[0] / 2.0,
-                start[1] + axis[1] / 2.0,
-                start[2] + axis[2] / 2.0,
-            ]),
-            radius: Some(*radius),
+        SourceShapeInput::Cylinder {
+            start,
+            axis,
+            radius,
+            ..
+        } => SourceData {
+            shape: PrimitiveShape::Cylinder {
+                center: [
+                    start[0] + axis[0] / 2.0,
+                    start[1] + axis[1] / 2.0,
+                    start[2] + axis[2] / 2.0,
+                ],
+                vector: *axis,
+                radius: *radius,
+            },
         },
         SourceShapeInput::Cuboid { bounds, .. } => SourceData {
-            shape_type: "Cuboid".to_string(),
-            center: Some([
-                (bounds.min[0] + bounds.max[0]) / 2.0,
-                (bounds.min[1] + bounds.max[1]) / 2.0,
-                (bounds.min[2] + bounds.max[2]) / 2.0,
-            ]),
-            radius: None,
+            shape: PrimitiveShape::Box {
+                min: bounds.min,
+                max: bounds.max,
+            },
         },
     });
 
@@ -206,7 +265,10 @@ async fn open_file_dialog(app: AppHandle) -> Result<Option<(String, String)>, St
             let _ = tx.send(path);
         });
 
-    match rx.await.map_err(|_| "Dialog closed unexpectedly".to_string())? {
+    match rx
+        .await
+        .map_err(|_| "Dialog closed unexpectedly".to_string())?
+    {
         Some(tauri_plugin_dialog::FilePath::Path(p)) => {
             let path_str = p.to_string_lossy().to_string();
             let content = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
@@ -228,7 +290,10 @@ async fn save_file_dialog(app: AppHandle, content: String) -> Result<Option<Stri
             let _ = tx.send(path);
         });
 
-    match rx.await.map_err(|_| "Dialog closed unexpectedly".to_string())? {
+    match rx
+        .await
+        .map_err(|_| "Dialog closed unexpectedly".to_string())?
+    {
         Some(tauri_plugin_dialog::FilePath::Path(p)) => {
             std::fs::write(&p, &content).map_err(|e| e.to_string())?;
             Ok(Some(p.to_string_lossy().to_string()))

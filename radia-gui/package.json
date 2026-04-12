@@ -19,7 +19,8 @@
     "monaco-yaml": "^5.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "three": "^0.165.0"
+    "three": "^0.165.0",
+    "three-bvh-csg": "^0.0.18"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

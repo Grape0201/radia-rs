@@ -1,8 +1,10 @@
 import React, { useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Box, Sphere, Cylinder, Text, Line } from "@react-three/drei";
+import { OrbitControls, Sphere, Text, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { GeometryData, PrimitiveShape } from "../types/geometry";
+import { GeometryData } from "../types/geometry";
+import { shapeToGeometry } from "./shapeToGeometry";
+import { buildCsgMesh } from "./buildCsgMesh";
 
 interface ViewerProps {
   geometry: GeometryData | null;
@@ -16,29 +18,45 @@ const computeMaxExtent = (geometry: GeometryData | null) => {
     if (val > extent) extent = val;
   };
 
-  geometry.primitives.forEach(prim => {
-    const s = prim.shape;
-    if (s.type === "Sphere") {
-      updateExtent(Math.abs(s.center[0]) + s.radius);
-      updateExtent(Math.abs(s.center[1]) + s.radius);
-      updateExtent(Math.abs(s.center[2]) + s.radius);
-    } else if (s.type === "Box") {
-      s.min.forEach(v => updateExtent(Math.abs(v)));
-      s.max.forEach(v => updateExtent(Math.abs(v)));
-    } else if (s.type === "Cylinder") {
-      const len = Math.sqrt(s.vector[0]**2 + s.vector[1]**2 + s.vector[2]**2);
-      updateExtent(Math.abs(s.center[0]) + len + s.radius);
-      updateExtent(Math.abs(s.center[1]) + len + s.radius);
-      updateExtent(Math.abs(s.center[2]) + len + s.radius);
+  try {
+    geometry.primitives?.forEach(prim => {
+      const s = prim.shape;
+      if (s.type === "Sphere") {
+        updateExtent(Math.abs(s.center[0]) + s.radius);
+        updateExtent(Math.abs(s.center[1]) + s.radius);
+        updateExtent(Math.abs(s.center[2]) + s.radius);
+      } else if (s.type === "Box") {
+        s.min.forEach(v => updateExtent(Math.abs(v)));
+        s.max.forEach(v => updateExtent(Math.abs(v)));
+      } else if (s.type === "Cylinder") {
+        const len = Math.sqrt(s.vector[0] ** 2 + s.vector[1] ** 2 + s.vector[2] ** 2);
+        updateExtent(Math.abs(s.center[0]) + len + s.radius);
+        updateExtent(Math.abs(s.center[1]) + len + s.radius);
+        updateExtent(Math.abs(s.center[2]) + len + s.radius);
+      }
+    });
+
+    geometry.detectors.forEach(det => {
+      det.position.forEach(v => updateExtent(Math.abs(v)));
+    });
+
+    if (geometry.source?.shape) {
+      if (geometry.source.shape.type === "Sphere") {
+        updateExtent(Math.abs(geometry.source.shape.center[0]) + geometry.source.shape.radius);
+        updateExtent(Math.abs(geometry.source.shape.center[1]) + geometry.source.shape.radius);
+        updateExtent(Math.abs(geometry.source.shape.center[2]) + geometry.source.shape.radius);
+      } else if (geometry.source.shape.type === "Box") {
+        geometry.source.shape.max.forEach(v => updateExtent(Math.abs(v)));
+        geometry.source.shape.min.forEach(v => updateExtent(Math.abs(v)));
+      } else if (geometry.source.shape.type === "Cylinder") {
+        const len = Math.sqrt(geometry.source.shape.vector[0] ** 2 + geometry.source.shape.vector[1] ** 2 + geometry.source.shape.vector[2] ** 2);
+        updateExtent(Math.abs(geometry.source.shape.center[0]) + len + geometry.source.shape.radius);
+        updateExtent(Math.abs(geometry.source.shape.center[1]) + len + geometry.source.shape.radius);
+        updateExtent(Math.abs(geometry.source.shape.center[2]) + len + geometry.source.shape.radius);
+      }
     }
-  });
-
-  geometry.detectors.forEach(det => {
-    det.position.forEach(v => updateExtent(Math.abs(v)));
-  });
-
-  if (geometry.source?.center) {
-    geometry.source.center.forEach(v => updateExtent(Math.abs(v) + (geometry.source!.radius || 1.0)));
+  } catch (e) {
+    console.error("Failed to compute extent:", e);
   }
 
   return extent;
@@ -54,42 +72,32 @@ const stringToColor = (str: string) => {
   return "#" + "00000".substring(0, 6 - c.length) + c;
 };
 
-const PrimitiveView = ({ shape, color, opacity = 0.5 }: { shape: PrimitiveShape, color: string, opacity?: number }) => {
-  const material = <meshStandardMaterial color={color} transparent opacity={opacity} depthWrite={false} />;
+const CsgCellView = ({
+  cell,
+  baseGeometries,
+  opacity = 0.5,
+}: {
+  cell: GeometryData["cells"][0];
+  baseGeometries: THREE.BufferGeometry[];
+  opacity?: number;
+}) => {
+  const mesh = useMemo(() => {
+    try {
+      if (!cell.csg?.instructions || cell.csg.instructions.length === 0) return null;
+      return buildCsgMesh(cell.csg.instructions, baseGeometries);
+    } catch (e) {
+      console.error(`Failed to build CSG mesh for cell ${cell.material_name}:`, e);
+      return null;
+    }
+  }, [cell, baseGeometries]);
 
-  if (shape.type === "Sphere") {
-    return (
-      <Sphere args={[shape.radius, 32, 32]} position={shape.center}>
-        {material}
-      </Sphere>
-    );
-  } else if (shape.type === "Box") {
-    const width = Math.abs(shape.max[0] - shape.min[0]);
-    const height = Math.abs(shape.max[1] - shape.min[1]);
-    const depth = Math.abs(shape.max[2] - shape.min[2]);
-    const center: [number, number, number] = [
-      (shape.max[0] + shape.min[0]) / 2,
-      (shape.max[1] + shape.min[1]) / 2,
-      (shape.max[2] + shape.min[2]) / 2,
-    ];
-    return (
-      <Box args={[width, height, depth]} position={center}>
-        {material}
-      </Box>
-    );
-  } else if (shape.type === "Cylinder") {
-    const v = new THREE.Vector3(...shape.vector);
-    const length = v.length() || 1e-6; 
-    const dir = v.clone().normalize();
-    const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  if (!mesh) return null;
 
-    return (
-      <Cylinder args={[shape.radius, shape.radius, length, 32]} position={shape.center} quaternion={quaternion}>
-        {material}
-      </Cylinder>
-    );
-  }
-  return null;
+  return (
+    <mesh geometry={mesh.geometry}>
+      <meshStandardMaterial color={stringToColor(cell.material_name)} transparent opacity={opacity} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
+  );
 };
 
 const AxesWithTicks = ({ size }: { size: number }) => {
@@ -98,12 +106,12 @@ const AxesWithTicks = ({ size }: { size: number }) => {
   let step = magnitude;
   if (size / step < 3) step /= 2;
   else if (size / step > 8) step *= 2;
-  
+
   const tickLength = Math.max(0.1, size * 0.02);
   const fontSize = Math.max(0.5, size * 0.04);
-  
+
   const ticks = [];
-  
+
   // Align tick start/end with multiples of step so 0 is squarely hit
   const startTick = -Math.floor(size / step) * step;
   const endTick = Math.floor(size / step) * step;
@@ -115,8 +123,8 @@ const AxesWithTicks = ({ size }: { size: number }) => {
     // X axis ticks (red)
     ticks.push(
       <group key={`x-${i}`} position={[i, 0, 0]}>
-        <mesh position={[0, -tickLength/2, 0]}>
-          <boxGeometry args={[tickLength*0.1, tickLength, tickLength*0.1]} />
+        <mesh position={[0, -tickLength / 2, 0]}>
+          <boxGeometry args={[tickLength * 0.1, tickLength, tickLength * 0.1]} />
           <meshBasicMaterial color="#ff0000" />
         </mesh>
         <Text position={[0, -tickLength * 1.5, 0]} fontSize={fontSize} color="#ff0000" anchorY="top">{val}</Text>
@@ -125,8 +133,8 @@ const AxesWithTicks = ({ size }: { size: number }) => {
     // Y axis ticks (green)
     ticks.push(
       <group key={`y-${i}`} position={[0, i, 0]}>
-        <mesh position={[-tickLength/2, 0, 0]}>
-          <boxGeometry args={[tickLength, tickLength*0.1, tickLength*0.1]} />
+        <mesh position={[-tickLength / 2, 0, 0]}>
+          <boxGeometry args={[tickLength, tickLength * 0.1, tickLength * 0.1]} />
           <meshBasicMaterial color="#00ff00" />
         </mesh>
         <Text position={[-tickLength * 1.5, 0, 0]} fontSize={fontSize} color="#00ff00" anchorX="right">{val}</Text>
@@ -135,8 +143,8 @@ const AxesWithTicks = ({ size }: { size: number }) => {
     // Z axis ticks (blue)
     ticks.push(
       <group key={`z-${i}`} position={[0, 0, i]}>
-        <mesh position={[0, -tickLength/2, 0]}>
-          <boxGeometry args={[tickLength*0.1, tickLength, tickLength*0.1]} />
+        <mesh position={[0, -tickLength / 2, 0]}>
+          <boxGeometry args={[tickLength * 0.1, tickLength, tickLength * 0.1]} />
           <meshBasicMaterial color="#0000ff" />
         </mesh>
         <Text position={[0, -tickLength * 1.5, 0]} fontSize={fontSize} color="#0000ff" anchorY="top">{val}</Text>
@@ -156,7 +164,28 @@ const AxesWithTicks = ({ size }: { size: number }) => {
 
 export const Viewer3D: React.FC<ViewerProps> = ({ geometry }) => {
   const maxExtent = useMemo(() => computeMaxExtent(geometry), [geometry]);
-  
+
+  // Create shared geometries array for all cells
+  const baseGeometries = useMemo(() => {
+    if (!geometry?.primitives) return [];
+    try {
+      return geometry.primitives.map(prim => shapeToGeometry(prim.shape));
+    } catch (e) {
+      console.error("Failed mapping base geometries:", e);
+      return [];
+    }
+  }, [geometry?.primitives]);
+
+  const sourceGeometry = useMemo(() => {
+    if (!geometry?.source?.shape) return null;
+    try {
+      return shapeToGeometry(geometry.source.shape);
+    } catch (e) {
+      console.error("Failed mapping source geometry:", e);
+      return null;
+    }
+  }, [geometry?.source]);
+
   // Adjust grid and axes dynamically
   const gridSize = Math.ceil((maxExtent * 2.5) / 10) * 10;
   const axesSize = gridSize / 2;
@@ -171,17 +200,17 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry }) => {
       <ambientLight intensity={0.5} />
       <directionalLight position={[maxExtent, maxExtent, maxExtent]} intensity={1} />
       <directionalLight position={[-maxExtent, maxExtent, -maxExtent]} intensity={0.5} />
-      
+
       {/* Controls */}
       <OrbitControls makeDefault />
       <AxesWithTicks size={axesSize} />
 
-      {/* Geometry Models */}
-      {geometry?.primitives.map((prim, i) => (
-        <PrimitiveView 
-          key={`prim-${prim.name}-${i}`} 
-          shape={prim.shape} 
-          color={stringToColor(prim.name)} 
+      {/* CSG Cells */}
+      {geometry?.cells?.map((cell, i) => (
+        <CsgCellView
+          key={`cell-${cell.material_name}-${i}`}
+          cell={cell}
+          baseGeometries={baseGeometries}
         />
       ))}
 
@@ -193,10 +222,10 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry }) => {
       ))}
 
       {/* Source */}
-      {geometry?.source?.center && (
-        <Sphere args={[geometry.source.radius || 1.0]} position={geometry.source.center}>
-          <meshStandardMaterial color="yellow" emissive="yellow" emissiveIntensity={0.8} />
-        </Sphere>
+      {sourceGeometry && (
+        <mesh geometry={sourceGeometry}>
+          <meshStandardMaterial color="yellow" emissive="yellow" emissiveIntensity={0.8} transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
       )}
     </Canvas>
   );

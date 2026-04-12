@@ -8,6 +8,13 @@ export type PrimitiveShape =
   | { type: "Box"; min: [number, number, number]; max: [number, number, number] }
   | { type: "Cylinder"; center: [number, number, number]; vector: [number, number, number]; radius: number };
 
+export type InstructionJson =
+  | { op: "push_primitive"; index: number }
+  | { op: "union" }
+  | { op: "intersection" }
+  | { op: "difference" }
+  | { op: "complement" };
+
 export interface PrimitiveData {
   name: string;
   shape: PrimitiveShape;
@@ -15,7 +22,8 @@ export interface PrimitiveData {
 
 export interface CellData {
   material_name: string;
-  csg: string;
+  csg_string: string;
+  csg: { instructions: InstructionJson[] };
 }
 
 export interface DetectorData {
@@ -24,9 +32,7 @@ export interface DetectorData {
 }
 
 export interface SourceData {
-  shape_type: string;
-  center?: [number, number, number];
-  radius?: number;
+  shape: PrimitiveShape;
 }
 
 export interface GeometryData {

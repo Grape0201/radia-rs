@@ -11,6 +11,7 @@ interface ViewerProps {
   hiddenCells: Set<number>;
   showSource: boolean;
   showDetectors: boolean;
+  cellStyles: Record<number, {color: string, opacity: number}>;
 }
 
 const computeMaxExtent = (geometry: GeometryData | null) => {
@@ -78,11 +79,13 @@ const stringToColor = (str: string) => {
 const CsgCellView = ({
   cell,
   baseGeometries,
-  opacity = 0.5,
+  opacity,
+  color,
 }: {
   cell: GeometryData["cells"][0];
   baseGeometries: THREE.BufferGeometry[];
   opacity?: number;
+  color?: string;
 }) => {
   const mesh = useMemo(() => {
     try {
@@ -98,7 +101,7 @@ const CsgCellView = ({
 
   return (
     <mesh geometry={mesh.geometry}>
-      <meshStandardMaterial color={stringToColor(cell.material_name)} transparent opacity={opacity} depthWrite={false} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={color ?? stringToColor(cell.material_name)} transparent opacity={opacity ?? 0.5} depthWrite={false} side={THREE.DoubleSide} />
     </mesh>
   );
 };
@@ -165,7 +168,7 @@ const AxesWithTicks = ({ size }: { size: number }) => {
   );
 };
 
-export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSource, showDetectors }) => {
+export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSource, showDetectors, cellStyles }) => {
   const maxExtent = useMemo(() => computeMaxExtent(geometry), [geometry]);
 
   // Create shared geometries array for all cells
@@ -216,6 +219,8 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSou
             key={`cell-${cell.material_name}-${i}`}
             cell={cell}
             baseGeometries={baseGeometries}
+            color={cellStyles[i]?.color}
+            opacity={cellStyles[i]?.opacity}
           />
         );
       })}

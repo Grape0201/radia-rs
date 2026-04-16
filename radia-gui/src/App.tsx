@@ -51,6 +51,7 @@ function App() {
   const [hiddenCells, setHiddenCells] = useState<Set<number>>(new Set());
   const [showSource, setShowSource] = useState(true);
   const [showDetectors, setShowDetectors] = useState(true);
+  const [cellStyles, setCellStyles] = useState<Record<number, {color: string, opacity: number}>>({});
 
   const toggleCell = useCallback((idx: number) => {
     setHiddenCells(prev => {
@@ -62,6 +63,13 @@ function App() {
       }
       return next;
     });
+  }, []);
+
+  const updateCellStyle = useCallback((idx: number, color: string, opacity: number) => {
+    setCellStyles(prev => ({
+      ...prev,
+      [idx]: { color, opacity }
+    }));
   }, []);
 
   const parseAndValidate = useCallback(async (content: string) => {
@@ -137,12 +145,14 @@ function App() {
               setShowSource={setShowSource}
               showDetectors={showDetectors}
               setShowDetectors={setShowDetectors}
+              cellStyles={cellStyles}
+              updateCellStyle={updateCellStyle}
             />
             <ValidationPanel result={validation} />
           </div>
         </div>
         <div className="right-pane">
-          <Viewer3D geometry={geometry} hiddenCells={hiddenCells} showSource={showSource} showDetectors={showDetectors} />
+          <Viewer3D geometry={geometry} hiddenCells={hiddenCells} showSource={showSource} showDetectors={showDetectors} cellStyles={cellStyles} />
         </div>
       </div>
     </div>

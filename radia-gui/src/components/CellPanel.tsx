@@ -9,7 +9,18 @@ interface Props {
   setShowSource: (val: boolean) => void;
   showDetectors: boolean;
   setShowDetectors: (val: boolean) => void;
+  cellStyles: Record<number, {color: string, opacity: number}>;
+  updateCellStyle: (idx: number, color: string, opacity: number) => void;
 }
+
+const stringToColor = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return "#" + "00000".substring(0, 6 - c.length) + c;
+};
 
 export const CellPanel: React.FC<Props> = ({ 
   geometry, 
@@ -18,7 +29,9 @@ export const CellPanel: React.FC<Props> = ({
   showSource,
   setShowSource,
   showDetectors,
-  setShowDetectors
+  setShowDetectors,
+  cellStyles,
+  updateCellStyle
 }) => {
   if (!geometry || !geometry.cells || geometry.cells.length === 0) return null;
 
@@ -28,6 +41,9 @@ export const CellPanel: React.FC<Props> = ({
       <ul className="cell-list">
         {geometry.cells.map((cell, idx) => {
           const isHidden = hiddenCells.has(idx);
+          const currentColor = cellStyles[idx]?.color ?? stringToColor(cell.material_name);
+          const currentOpacity = cellStyles[idx]?.opacity ?? 0.5;
+
           return (
             <li key={idx} className="cell-item">
               <label>
@@ -35,6 +51,20 @@ export const CellPanel: React.FC<Props> = ({
                   type="checkbox"
                   checked={!isHidden}
                   onChange={() => toggleCell(idx)}
+                />
+                <input 
+                  type="color" 
+                  value={currentColor} 
+                  onChange={(e) => updateCellStyle(idx, e.target.value, currentOpacity)} 
+                  style={{ width: '20px', height: '20px', padding: 0, border: 'none', margin: '0 4px' }}
+                />
+                <input 
+                  type="range" 
+                  min="0" max="1" step="0.05" 
+                  value={currentOpacity}
+                  onChange={(e) => updateCellStyle(idx, currentColor, parseFloat(e.target.value))}
+                  style={{ width: '50px', margin: '0 4px' }}
+                  title={`Opacity: ${currentOpacity}`}
                 />
                 <span className="material-name">
                   {cell.material_name}

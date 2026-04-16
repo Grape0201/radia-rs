@@ -63,6 +63,7 @@ pub struct CsgData {
 #[derive(Debug, Serialize, Clone)]
 pub struct CellData {
     pub material_name: String,
+    pub density: Option<f32>,
     pub csg_string: String,
     pub csg: CsgData,
 }
@@ -190,8 +191,14 @@ fn parse_geometry(yaml: String) -> Result<GeometryData, String> {
                 })
                 .collect();
 
+            let density = input
+                .user_defined_materials
+                .get(&input_cell.material_name)
+                .map(|m| m.density);
+
             CellData {
                 material_name: input_cell.material_name.clone(),
+                density,
                 csg_string: input_cell.csg.clone(),
                 csg: CsgData { instructions },
             }

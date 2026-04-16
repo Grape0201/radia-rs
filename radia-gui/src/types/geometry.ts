@@ -22,6 +22,7 @@ export interface PrimitiveData {
 
 export interface CellData {
   material_name: string;
+  density?: number;
   csg_string: string;
   csg: { instructions: InstructionJson[] };
 }

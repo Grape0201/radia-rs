@@ -8,6 +8,9 @@ import { buildCsgMesh } from "./buildCsgMesh";
 
 interface ViewerProps {
   geometry: GeometryData | null;
+  hiddenCells: Set<number>;
+  showSource: boolean;
+  showDetectors: boolean;
 }
 
 const computeMaxExtent = (geometry: GeometryData | null) => {
@@ -162,7 +165,7 @@ const AxesWithTicks = ({ size }: { size: number }) => {
   );
 };
 
-export const Viewer3D: React.FC<ViewerProps> = ({ geometry }) => {
+export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSource, showDetectors }) => {
   const maxExtent = useMemo(() => computeMaxExtent(geometry), [geometry]);
 
   // Create shared geometries array for all cells
@@ -206,23 +209,26 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry }) => {
       <AxesWithTicks size={axesSize} />
 
       {/* CSG Cells */}
-      {geometry?.cells?.map((cell, i) => (
-        <CsgCellView
-          key={`cell-${cell.material_name}-${i}`}
-          cell={cell}
-          baseGeometries={baseGeometries}
-        />
-      ))}
+      {geometry?.cells?.map((cell, i) => {
+        if (hiddenCells.has(i)) return null;
+        return (
+          <CsgCellView
+            key={`cell-${cell.material_name}-${i}`}
+            cell={cell}
+            baseGeometries={baseGeometries}
+          />
+        );
+      })}
 
       {/* Detectors */}
-      {geometry?.detectors.map((det, i) => (
+      {showDetectors && geometry?.detectors.map((det, i) => (
         <Sphere key={`det-${det.name}-${i}`} args={[0.5]} position={det.position}>
           <meshStandardMaterial color="red" />
         </Sphere>
       ))}
 
       {/* Source */}
-      {sourceGeometry && (
+      {showSource && sourceGeometry && (
         <mesh geometry={sourceGeometry}>
           <meshStandardMaterial color="yellow" emissive="yellow" emissiveIntensity={0.8} transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
         </mesh>

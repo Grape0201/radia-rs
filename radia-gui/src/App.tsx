@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Editor } from "./components/Editor";
 import { Viewer3D } from "./components/Viewer3D";
 import { ValidationPanel } from "./components/ValidationPanel";
+import { CellPanel } from "./components/CellPanel";
 import { GeometryData, ValidationResult } from "./types/geometry";
 import "./App.css";
 
@@ -47,6 +48,21 @@ function App() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [geometry, setGeometry] = useState<GeometryData | null>(null);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
+  const [hiddenCells, setHiddenCells] = useState<Set<number>>(new Set());
+  const [showSource, setShowSource] = useState(true);
+  const [showDetectors, setShowDetectors] = useState(true);
+
+  const toggleCell = useCallback((idx: number) => {
+    setHiddenCells(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  }, []);
 
   const parseAndValidate = useCallback(async (content: string) => {
     try {
@@ -112,10 +128,21 @@ function App() {
           <div className="editor-wrapper">
             <Editor value={yaml} onChange={setYaml} />
           </div>
-          <ValidationPanel result={validation} />
+          <div className="bottom-panels">
+            <CellPanel 
+              geometry={geometry} 
+              hiddenCells={hiddenCells} 
+              toggleCell={toggleCell} 
+              showSource={showSource}
+              setShowSource={setShowSource}
+              showDetectors={showDetectors}
+              setShowDetectors={setShowDetectors}
+            />
+            <ValidationPanel result={validation} />
+          </div>
         </div>
         <div className="right-pane">
-          <Viewer3D geometry={geometry} />
+          <Viewer3D geometry={geometry} hiddenCells={hiddenCells} showSource={showSource} showDetectors={showDetectors} />
         </div>
       </div>
     </div>

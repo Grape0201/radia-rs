@@ -195,6 +195,8 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSou
   // Adjust grid and axes dynamically
   const gridSize = Math.ceil((maxExtent * 2.5) / 10) * 10;
   const axesSize = gridSize / 2;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(axesSize || 1)));
+  const detectorRadius = Math.max(0.1, magnitude * 0.05);
 
   // Ensure camera isn't clipped and position covers the extent.
   // Use a large far plane (maxExtent * 1000) so zooming out does not cause far-plane clipping.
@@ -233,7 +235,7 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSou
 
       {/* Detectors */}
       {showDetectors && geometry?.detectors.map((det, i) => (
-        <Sphere key={`det-${det.name}-${i}`} args={[0.5]} position={det.position}>
+        <Sphere key={`det-${det.name}-${i}`} args={[detectorRadius]} position={det.position}>
           <meshStandardMaterial color="red" />
         </Sphere>
       ))}

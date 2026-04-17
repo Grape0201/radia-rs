@@ -32,8 +32,14 @@ export const shapeToGeometry = (shape: PrimitiveShape): THREE.BufferGeometry => 
     const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     geometry.applyQuaternion(quaternion);
     
-    // Position the cylinder at its origin center
-    geometry.translate(shape.center[0], shape.center[1], shape.center[2]);
+    // In radia-rs, `center` is one cap of the cylinder and `vector` points to the other cap.
+    // Three.js CylinderGeometry is centered at the origin, so we must translate to the midpoint.
+    const mid = [
+      shape.center[0] + shape.vector[0] / 2,
+      shape.center[1] + shape.vector[1] / 2,
+      shape.center[2] + shape.vector[2] / 2,
+    ];
+    geometry.translate(mid[0], mid[1], mid[2]);
   } else {
     throw new Error(`Unsupported shape type: ${(shape as any).type}`);
   }

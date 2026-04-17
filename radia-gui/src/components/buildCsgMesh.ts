@@ -20,7 +20,7 @@ export const buildCsgMesh = (
       const geom = geometries[inst.index];
       if (!geom) throw new Error(`Invalid shape index: ${inst.index}`);
       
-      const brush = new Brush(geom);
+      const brush = new Brush(geom.clone());
       brush.updateMatrixWorld();
       stack.push(brush);
       continue;

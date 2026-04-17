@@ -11,7 +11,7 @@ interface ViewerProps {
   hiddenCells: Set<number>;
   showSource: boolean;
   showDetectors: boolean;
-  cellStyles: Record<number, {color: string, opacity: number}>;
+  cellStyles: Record<number, { color: string, opacity: number }>;
 }
 
 const computeMaxExtent = (geometry: GeometryData | null) => {
@@ -101,7 +101,7 @@ const CsgCellView = ({
 
   return (
     <mesh geometry={mesh.geometry}>
-      <meshStandardMaterial color={color ?? stringToColor(cell.material_name)} transparent opacity={opacity ?? 0.5} depthWrite={false} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={color ?? stringToColor(cell.material_name)} transparent={true} opacity={opacity ?? 0.5} depthWrite={(opacity ?? 0.5) >= 1.0} side={THREE.DoubleSide} />
     </mesh>
   );
 };
@@ -196,19 +196,25 @@ export const Viewer3D: React.FC<ViewerProps> = ({ geometry, hiddenCells, showSou
   const gridSize = Math.ceil((maxExtent * 2.5) / 10) * 10;
   const axesSize = gridSize / 2;
 
-  // Ensure camera isn't clipped and position covers the extent
+  // Ensure camera isn't clipped and position covers the extent.
+  // Use a large far plane (maxExtent * 1000) so zooming out does not cause far-plane clipping.
+  // logarithmicDepthBuffer (set on Canvas) preserves depth precision at large far/near ratios.
   const camPos = maxExtent * 2;
-  const farPlane = Math.max(1000, maxExtent * 10);
+  const nearPlane = Math.max(0.01, maxExtent * 0.0001);
+  const farPlane = Math.max(100000, maxExtent * 1000);
 
   return (
-    <Canvas camera={{ position: [camPos, camPos, camPos], fov: 50, far: farPlane }}>
+    <Canvas
+      camera={{ position: [camPos, camPos, camPos], fov: 50, near: nearPlane, far: farPlane }}
+      gl={{ logarithmicDepthBuffer: true }}
+    >
       {/* Lights */}
       <ambientLight intensity={0.5} />
       <directionalLight position={[maxExtent, maxExtent, maxExtent]} intensity={1} />
       <directionalLight position={[-maxExtent, maxExtent, -maxExtent]} intensity={0.5} />
 
       {/* Controls */}
-      <OrbitControls makeDefault />
+      <OrbitControls makeDefault maxDistance={farPlane * 0.9} />
       <AxesWithTicks size={axesSize} />
 
       {/* CSG Cells */}
